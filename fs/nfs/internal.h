@@ -496,6 +496,8 @@ void nfs_init_cinfo(struct nfs_commit_info *cinfo,
 int nfs_key_timeout_notify(struct file *filp, struct inode *inode);
 bool nfs_ctx_key_to_expire(struct nfs_open_context *ctx);
 void nfs_pageio_stop_mirroring(struct nfs_pageio_descriptor *pgio);
+extern int nfs_cuju_cmd_send(unsigned int);
+extern int nfs_cuju_cmd_send2(struct file *);
 
 #ifdef CONFIG_MIGRATION
 extern int nfs_migrate_page(struct address_space *,

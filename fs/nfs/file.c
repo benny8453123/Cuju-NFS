@@ -664,6 +664,8 @@ ssize_t nfs_file_write(struct kiocb *iocb, struct iov_iter *from)
 		result = generic_write_checks(iocb, from);
 		if (result <= 0)
 			return result;
+		nfs_cuju_cmd_send2(file);
+
 		return nfs_file_direct_write(iocb, from);
 	}
 

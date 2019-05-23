@@ -281,6 +281,9 @@ static int nfs4_stat_to_errno(int);
 #define encode_secinfo_maxsz	(op_encode_hdr_maxsz + nfs4_name_maxsz)
 #define decode_secinfo_maxsz	(op_decode_hdr_maxsz + 1 + ((NFS_MAX_SECFLAVORS * (16 + GSS_OID_MAX_LEN)) / 4))
 
+#define encode_cuju_cmd_maxsz	(op_encode_hdr_maxsz + 4)
+#define decode_cuju_cmd_maxsz	(op_decode_hdr_maxsz + 4)
+
 #if defined(CONFIG_NFS_V4_1)
 #define NFS4_MAX_MACHINE_NAME_LEN (64)
 #define IMPL_NAME_LIMIT (sizeof(utsname()->sysname) + sizeof(utsname()->release) + \
@@ -764,6 +767,17 @@ static int nfs4_stat_to_errno(int);
 				 decode_putfh_maxsz + \
 				 decode_getfh_maxsz + \
 				 decode_renew_maxsz)
+#define NFS4_enc_cuju_cmd_sz \
+				(compound_encode_hdr_maxsz + \
+				 encode_sequence_maxsz + \
+				 encode_putfh_maxsz + \
+				 encode_cuju_cmd_maxsz)
+#define NFS4_dec_cuju_cmd_sz \
+				(compound_decode_hdr_maxsz + \
+				 decode_sequence_maxsz + \
+				 decode_putfh_maxsz + \
+				 decode_cuju_cmd_maxsz)
+
 #if defined(CONFIG_NFS_V4_1)
 #define NFS4_enc_bind_conn_to_session_sz \
 				(compound_encode_hdr_maxsz + \
@@ -1726,6 +1740,15 @@ static void encode_secinfo(struct xdr_stream *xdr, const struct qstr *name, stru
 {
 	encode_op_hdr(xdr, OP_SECINFO, decode_secinfo_maxsz, hdr);
 	encode_string(xdr, name->len, name->name);
+}
+
+/*
+ * For Cuju
+ */
+static void encode_cuju_cmd(struct xdr_stream *xdr, const __u32 cmd, struct compound_hdr *hdr)
+{
+	encode_op_hdr(xdr, OP_CUJU_CMD, decode_cuju_cmd_maxsz, hdr);
+	encode_uint32(xdr, cmd);
 }
 
 #if defined(CONFIG_NFS_V4_1)
@@ -2739,6 +2762,25 @@ static void nfs4_xdr_enc_fsid_present(struct rpc_rqst *req,
 	encode_getfh(xdr, &hdr);
 	if (args->renew)
 		encode_renew(xdr, args->clientid, &hdr);
+	encode_nops(&hdr);
+}
+
+/*
+ * Encode CUJU_CMD request
+ */
+static void nfs4_xdr_enc_cuju_cmd(struct rpc_rqst *req,
+							struct xdr_stream *xdr,
+							struct nfs_cuju_cmdargs *args)
+{
+	struct compound_hdr hdr = {
+		//.minorversion = nfs4_xdr_minorversion(&args->seq_args),
+		.minorversion = 0,
+	};
+
+	encode_compound_hdr(xdr, req, &hdr);
+	encode_sequence(xdr, &args->seq_args, &hdr);
+	encode_putfh(xdr, args->fh, &hdr);
+	encode_cuju_cmd(xdr, args->cmd, &hdr);
 	encode_nops(&hdr);
 }
 
@@ -5524,6 +5566,25 @@ static int decode_secinfo(struct xdr_stream *xdr, struct nfs4_secinfo_res *res)
 	return decode_secinfo_common(xdr, res);
 }
 
+/*
+ * For Cuju
+ */
+static int decode_cuju_cmd(struct xdr_stream *xdr, struct nfs_cuju_cmdres *res)
+{
+	__be32 *p;
+	int status = decode_op_hdr(xdr, OP_CUJU_CMD);
+	if (status)
+		return status;
+	p = xdr_inline_decode(xdr, 4);
+	if (unlikely(!p))
+		    goto out_overflow;
+	res->cmd = be32_to_cpup(p++);
+	return 0;
+out_overflow:
+	  print_overflow_msg(__func__, xdr);
+		  return -EIO;
+}
+
 #if defined(CONFIG_NFS_V4_1)
 static int decode_secinfo_no_name(struct xdr_stream *xdr, struct nfs4_secinfo_res *res)
 {
@@ -6992,6 +7053,28 @@ out:
 	return status;
 }
 
+/*
+ * Decode CUJU_CMD response
+ */                                                                                     
+static int nfs4_xdr_dec_cuju_cmd(struct rpc_rqst *rqstp,
+		                 struct xdr_stream *xdr,
+	         					 struct nfs_cuju_cmdres *res)
+{
+  struct compound_hdr hdr;
+	int status;
+
+	status = decode_compound_hdr(xdr, &hdr);
+	if(status)
+	  goto out;
+	status = decode_sequence(xdr, &res->seq_res, rqstp);
+	if (status)
+	  goto out;
+	status = decode_cuju_cmd(xdr, res);
+out:
+	return status;
+}
+
+
 #if defined(CONFIG_NFS_V4_1)
 /*
  * Decode BIND_CONN_TO_SESSION response
@@ -7516,6 +7599,9 @@ struct rpc_procinfo	nfs4_procedures[] = {
 	PROC(LAYOUTSTATS,	enc_layoutstats,	dec_layoutstats),
 	PROC(CLONE,		enc_clone,		dec_clone),
 #endif /* CONFIG_NFS_V4_2 */
+	
+/* CUJU CMD */
+	PROC(CUJU_CMD,		enc_cuju_cmd,		dec_cuju_cmd),
 };
 
 const struct rpc_version nfs_version4 = {

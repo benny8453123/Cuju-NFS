@@ -1945,6 +1945,171 @@ out_error:
 	return ret;
 }
 
+/*
+ *For Cuju command
+ */
+static mempool_t *nfs_cuju_cmd_mempool;
+static struct kmem_cache *nfs_cuju_cmd_data_cachep;
+
+static void nfs_cuju_cmd_prepare(struct rpc_task *task, void *calldata)
+{
+	// For Cuju prepare rpc task
+	struct nfs_cuju_cmd_data *data = calldata;
+	NFS_PROTO(data->inode)->cuju_cmd_rpc_prepare(task, data);
+}
+
+static void nfs_cuju_cmd_done(struct rpc_task *task, void *calldata)
+{
+ 	//For cuju check callback
+	//struct nfs_cuju_cmd_data *data = calldata;
+}
+
+static void nfs_cuju_cmd_release(void *calldata)
+{
+	//struct nfs_cuju_cmd_data *data = calldata;
+
+
+}
+
+static const struct rpc_call_ops nfs_cuju_cmd_ops = {
+		.rpc_call_prepare = nfs_cuju_cmd_prepare,
+		.rpc_call_done = nfs_cuju_cmd_done,
+		.rpc_release = nfs_cuju_cmd_release,
+		//.rpc_count_stats = NULL
+};
+
+static int nfs_cuju_cmd_initiate(struct rpc_clnt *clnt, struct nfs_cuju_cmd_data *data,
+		const struct nfs_rpc_ops *nfs_ops,
+		const struct rpc_call_ops *call_ops) {
+	struct rpc_task *task;
+	//struct nfs_server *server = NFS_SERVER(data->inode);
+	//setup call backops here
+	
+	struct rpc_message msg = {
+		.rpc_argp = &data->args,
+		.rpc_resp = &data->res,
+		.rpc_cred = data->cred,
+	};
+	
+	struct rpc_task_setup task_setup_data = {
+		.task = &data->task,
+		.rpc_client = clnt,
+		.rpc_message = &msg,
+		.callback_ops = call_ops,
+		.callback_data = data,
+		.workqueue = nfsiod_workqueue,
+		.priority = (signed char)0,
+	};
+
+	nfs_ops->cuju_cmd_setup(data, &msg);
+/*
+	//set sequence & callback ops
+	data->res.server = server;
+
+	msg->rpc_proc = &nfs4_procedures[NFSPROC4_CLNT_CUJU_CMD];
+	nfs4_init_sequence(&data->args.seq_args,&data->res.seq_res,1);
+	*/
+	task = rpc_run_task(&task_setup_data);
+
+	if (IS_ERR(task))
+		return PTR_ERR(task);
+
+	if (FLUSH_COND_STABLE & FLUSH_SYNC)
+		rpc_wait_for_completion_task(task);
+
+	rpc_put_task(task);
+	
+	return 0;
+}
+
+static int __nfs_cuju_cmd_send(unsigned long fd) {
+	struct fd f =  __to_fd(fd);
+	struct file *file = f.file;
+	struct inode *inode = file_inode(file);
+	struct nfs_open_context *ctx = nfs_file_open_context(file);
+	//allocate and init ftcmd data
+	struct nfs_cuju_cmd_data *data;
+
+	//allocate
+	data = mempool_alloc(nfs_cuju_cmd_mempool, GFP_NOIO);
+	if(data)
+		memset(data,0,sizeof(*data));
+	else
+		printk(KERN_ERR "Cuju allocate cmd data fail\n");
+
+	//init data
+	data->inode	= inode;
+	data->cred = ctx->cred;
+	data->args.fh = NFS_FH(inode);
+	data->args.cmd = 1;
+
+	data->context = ctx;
+	data->mds_ops = &nfs_cuju_cmd_ops;
+	data->res.fattr = &data->fattr;
+	data->res.verf = &data->verf;
+	nfs_fattr_init(&data->fattr);
+	
+	//initiate
+	nfs_cuju_cmd_initiate(NFS_CLIENT(inode),data,NFS_PROTO(inode),&nfs_cuju_cmd_ops);
+
+	//complete and clean
+	//not do yet
+	return 0;
+}
+
+
+int nfs_cuju_cmd_send(unsigned int fd) {
+	unsigned long v = __fdget(fd);
+	struct file *file = (struct file *)(v & ~3);
+
+	if (file && (file->f_mode & FMODE_ATOMIC_POS)) {
+		if (file_count(file) > 1) {
+			v |= FDPUT_POS_UNLOCK;
+			mutex_lock(&file->f_pos_lock);
+		}
+	}
+	return __nfs_cuju_cmd_send(v);
+}
+EXPORT_SYMBOL_GPL(nfs_cuju_cmd_send);
+//Cuju end
+
+
+//for test
+int nfs_cuju_cmd_send2(struct file * f) {
+	struct file *file = f;
+	struct inode *inode = file_inode(file);
+	struct nfs_open_context *ctx = nfs_file_open_context(file);
+	//allocate and init ftcmd data
+	struct nfs_cuju_cmd_data *data;
+
+	//allocate
+	data = mempool_alloc(nfs_cuju_cmd_mempool, GFP_NOIO);
+	if(data)
+		memset(data,0,sizeof(*data));
+	else
+		printk(KERN_ERR "Cuju allocate cmd data fail\n");
+
+	//init data
+	data->inode	= inode;
+	data->cred = ctx->cred;
+	data->args.fh = NFS_FH(inode);
+	data->args.cmd = 0xffff00ff;
+
+	data->context = ctx;
+	data->mds_ops = &nfs_cuju_cmd_ops;
+	data->res.fattr = &data->fattr;
+	data->res.verf = &data->verf;
+	nfs_fattr_init(&data->fattr);
+	
+	//initiate
+	nfs_cuju_cmd_initiate(NFS_CLIENT(inode),data,NFS_PROTO(inode),&nfs_cuju_cmd_ops);
+
+	//complete and clean
+	//not do yet
+	return 0;
+}
+EXPORT_SYMBOL_GPL(nfs_cuju_cmd_send2);
+
 #ifdef CONFIG_MIGRATION
 int nfs_migrate_page(struct address_space *mapping, struct page *newpage,
 		struct page *page, enum migrate_mode mode)
@@ -1994,6 +2159,22 @@ int __init nfs_init_writepagecache(void)
 		goto out_destroy_commit_cache;
 
 	/*
+	 * For Cuju
+	 */
+	nfs_cuju_cmd_data_cachep = kmem_cache_create("nfs_cuju_cmd_data",
+					     sizeof(struct nfs_cuju_cmd_data),
+					     0, SLAB_HWCACHE_ALIGN,
+					     NULL);
+	if (nfs_cuju_cmd_data_cachep == NULL)
+		goto out_destroy_commit_mempool;
+
+	nfs_cuju_cmd_mempool = mempool_create_slab_pool(MIN_POOL_COMMIT,
+						      nfs_cuju_cmd_data_cachep);
+	if (nfs_cuju_cmd_mempool == NULL)
+		goto out_destroy_cuju_cmd_data_cache;
+	/*cuju end*/
+
+	/*
 	 * NFS congestion size, scale with available memory.
 	 *
 	 *  64MB:    8192k
@@ -2015,6 +2196,12 @@ int __init nfs_init_writepagecache(void)
 
 	return 0;
 
+/*Cuju add*/
+out_destroy_cuju_cmd_data_cache:
+	kmem_cache_destroy(nfs_cuju_cmd_data_cachep);
+out_destroy_commit_mempool:
+	mempool_destroy(nfs_commit_mempool);
+/*Cuju end*/
 out_destroy_commit_cache:
 	kmem_cache_destroy(nfs_cdata_cachep);
 out_destroy_write_mempool:
@@ -2026,6 +2213,12 @@ out_destroy_write_cache:
 
 void nfs_destroy_writepagecache(void)
 {
+	/*
+	 * For Cuju
+	 */
+	mempool_destroy(nfs_cuju_cmd_mempool);
+	kmem_cache_destroy(nfs_cuju_cmd_data_cachep);
+	//cuju end
 	mempool_destroy(nfs_commit_mempool);
 	kmem_cache_destroy(nfs_cdata_cachep);
 	mempool_destroy(nfs_wdata_mempool);
@@ -2040,3 +2233,4 @@ static const struct nfs_rw_ops nfs_rw_write_ops = {
 	.rw_result		= nfs_writeback_result,
 	.rw_initiate		= nfs_initiate_write,
 };
+

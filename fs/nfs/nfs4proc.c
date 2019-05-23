@@ -6761,6 +6761,49 @@ int nfs4_proc_secinfo(struct inode *dir, const struct qstr *name,
 	return err;
 }
 
+/*
+ * For Cuju
+ */
+static void nfs4_proc_cuju_cmd_rpc_prepare(struct rpc_task *task, struct nfs_cuju_cmd_data * data)
+{
+	nfs4_setup_sequence(NFS_SERVER(data->inode),
+			&data->args.seq_args,
+			&data->res.seq_res,
+			task);
+}
+
+static int nfs4_proc_cuju_cmd_done_cb(struct rpc_task *task, struct nfs_cuju_cmd_data * data)
+{
+	if (nfs4_async_handle_error(task, NFS_SERVER(data->inode),
+				NULL, NULL) == -EAGAIN) {
+				rpc_restart_call_prepare(task);
+				return -EAGAIN;
+	}
+	return 0;
+
+}
+
+static int nfs4_proc_cuju_cmd_done(struct rpc_task *task, struct nfs_cuju_cmd_data * data)
+{
+	
+	if (!nfs4_sequence_done(task, &data->res.seq_res))
+			return -EAGAIN;
+
+	return data->cuju_cmd_done_cb(task, data);
+}
+
+static void nfs4_proc_cuju_cmd_setup(struct nfs_cuju_cmd_data *data, struct rpc_message *msg)
+{
+	struct nfs_server *server = NFS_SERVER(data->inode);
+
+	if(data->cuju_cmd_done_cb == NULL)
+		data->cuju_cmd_done_cb = nfs4_proc_cuju_cmd_done_cb;
+
+	data->res.server = server;
+	msg->rpc_proc = &nfs4_procedures[NFSPROC4_CLNT_CUJU_CMD];
+	nfs4_init_sequence(&data->args.seq_args, &data->res.seq_res, 1);
+}
+
 #ifdef CONFIG_NFS_V4_1
 /*
  * Check the exchange flags returned by the server for invalid flags, having
@@ -8830,6 +8873,13 @@ const struct nfs_rpc_ops nfs_v4_clientops = {
 	.free_client	= nfs4_free_client,
 	.create_server	= nfs4_create_server,
 	.clone_server	= nfs_clone_server,
+	/*
+	 * For Cuju
+	 */
+	.cuju_cmd_setup = nfs4_proc_cuju_cmd_setup,
+	.cuju_cmd_rpc_prepare = nfs4_proc_cuju_cmd_rpc_prepare,
+	.cuju_cmd_done = nfs4_proc_cuju_cmd_done,
+	//.cuju_cmd = nfs4_proc_cuju_cmd,
 };
 
 static const struct xattr_handler nfs4_xattr_nfs4_acl_handler = {

@@ -132,6 +132,9 @@ enum nfs_opnum4 {
 	OP_WRITE_SAME = 70,
 	OP_CLONE = 71,
 
+	/*cuju cmd*/
+	OP_CUJU_CMD = 101,
+
 	OP_ILLEGAL = 10044,
 };
 
@@ -504,6 +507,9 @@ enum {
 	NFSPROC4_CLNT_DEALLOCATE,
 	NFSPROC4_CLNT_LAYOUTSTATS,
 	NFSPROC4_CLNT_CLONE,
+	
+	/*Cuju cmd*/
+	NFSPROC4_CLNT_CUJU_CMD,
 };
 
 /* nfs41 types */

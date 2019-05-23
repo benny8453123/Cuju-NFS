@@ -1486,6 +1486,39 @@ struct nfs_renamedata {
 	long timeout;
 };
 
+/*
+ *For Cuju command
+ */
+struct nfs_cuju_cmdargs {
+	struct nfs4_sequence_args		seq_args;
+	const struct nfs_fh					*fh;
+	__u32												cmd;
+};
+struct nfs_cuju_cmdres {
+	struct nfs4_sequence_res		seq_res;
+	const struct nfs_server			*server;
+	__u32												cmd;
+	//test
+	struct nfs_fattr						*fattr;
+	struct nfs_writeverf				*verf;
+
+};
+struct nfs_cuju_cmd_data {
+	struct rpc_task						task;
+	struct inode							*inode;
+	struct rpc_cred						*cred;
+	
+	struct nfs_cuju_cmdargs		args;
+	struct nfs_cuju_cmdres		res;
+	struct nfs_open_context		*context;
+	const struct rpc_call_ops *mds_ops;
+	int (*cuju_cmd_done_cb)(struct rpc_task *, struct nfs_cuju_cmd_data *);
+	//release needed?
+	struct nfs_fattr 			fattr;
+	struct nfs_writeverf	verf;
+};
+//Cuju end
+
 struct nfs_access_entry;
 struct nfs_client;
 struct rpc_timeout;
@@ -1574,6 +1607,13 @@ struct nfs_rpc_ops {
 	struct nfs_server *(*create_server)(struct nfs_mount_info *, struct nfs_subversion *);
 	struct nfs_server *(*clone_server)(struct nfs_server *, struct nfs_fh *,
 					   struct nfs_fattr *, rpc_authflavor_t);
+  /*
+	 * For Cuju
+	 */
+	void (*cuju_cmd_setup)(struct nfs_cuju_cmd_data *, struct rpc_message *);
+	void (*cuju_cmd_rpc_prepare)(struct rpc_task *, struct nfs_cuju_cmd_data *);
+	int (*cuju_cmd_done)(struct rpc_task *, struct nfs_cuju_cmd_data *);
+	//void (*cuju_cmd)(struct rpc_task *, struct nfs_cuju_cmd_data *);
 };
 
 /*
