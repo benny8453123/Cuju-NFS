@@ -1009,6 +1009,18 @@ nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	return status;
 }
 
+/*
+ * For Cuju
+ */
+static __be32
+nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
+		      struct nfsd4_cuju_cmd *cuju_cmd)
+{
+	printk(KERN_WARNING "Cuju cmd\n");
+	return nfs_ok;
+}
+//end
+
 static __be32
 nfsd4_fallocate(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		struct nfsd4_fallocate *fallocate, int flags)
@@ -1753,6 +1765,10 @@ out:
 
 #define op_encode_channel_attrs_maxsz	(6 + 1 + 1)
 
+/* For Cuju */
+#define op_encode_cuju_cmd_maxsz	(4)
+// cuju end
+
 static inline u32 nfsd4_only_status_rsize(struct svc_rqst *rqstp, struct nfsd4_op *op)
 {
 	return (op_encode_hdr_size) * sizeof(__be32);
@@ -1922,6 +1938,14 @@ static inline u32 nfsd4_create_session_rsize(struct svc_rqst *rqstp, struct nfsd
 		op_encode_channel_attrs_maxsz + \
 		op_encode_channel_attrs_maxsz) * sizeof(__be32);
 }
+
+/* For Cuju*/
+static inline u32 nfsd4_cuju_cmd_rsize(struct svc_rqst *rqstp, struct nfsd4_op *op)
+{
+	  return (op_encode_hdr_size + op_encode_cuju_cmd_maxsz)
+			    * sizeof(__be32);
+}
+//cuju end
 
 #ifdef CONFIG_NFSD_PNFS
 /*
@@ -2283,6 +2307,15 @@ static struct nfsd4_operation nfsd4_ops[] = {
 		.op_func = (nfsd4op_func)nfsd4_seek,
 		.op_name = "OP_SEEK",
 	},
+
+	/* For Cuju */
+	[OP_CUJU_CMD] = {
+		.op_func = (nfsd4op_func)nfsd4_cuju_cmd,
+		.op_flags = OP_CACHEME,
+		.op_name = "OP_CUJU_CMD",
+		.op_rsize_bop = (nfsd4op_rsize)nfsd4_cuju_cmd_rsize,
+	}
+	//cuju end
 };
 
 int nfsd4_max_reply(struct svc_rqst *rqstp, struct nfsd4_op *op)

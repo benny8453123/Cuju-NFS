@@ -502,6 +502,12 @@ struct nfsd4_seek {
 	loff_t		seek_pos;
 };
 
+/* For Cuju */
+struct nfsd4_cuju_cmd {
+	u32		cmd;
+
+};
+
 struct nfsd4_op {
 	int					opnum;
 	__be32					status;
@@ -556,6 +562,9 @@ struct nfsd4_op {
 		struct nfsd4_fallocate		allocate;
 		struct nfsd4_fallocate		deallocate;
 		struct nfsd4_seek		seek;
+
+		/* For Cuju */
+		struct nfsd4_cuju_cmd cuju_cmd;
 	} u;
 	struct nfs4_replay *			replay;
 };

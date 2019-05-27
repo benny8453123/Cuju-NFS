@@ -1962,13 +1962,13 @@ static void nfs_cuju_cmd_done(struct rpc_task *task, void *calldata)
 {
  	//For cuju check callback
 	//struct nfs_cuju_cmd_data *data = calldata;
+	//NFS_PROTO(data->inode)->commit_done(task, data);
 }
 
 static void nfs_cuju_cmd_release(void *calldata)
 {
-	//struct nfs_cuju_cmd_data *data = calldata;
-
-
+	struct nfs_cuju_cmd_data *data = calldata;
+	mempool_free(data,nfs_cuju_cmd_mempool);
 }
 
 static const struct rpc_call_ops nfs_cuju_cmd_ops = {

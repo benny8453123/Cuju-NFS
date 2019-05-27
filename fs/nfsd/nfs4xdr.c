@@ -1272,6 +1272,19 @@ nfsd4_decode_release_lockowner(struct nfsd4_compoundargs *argp, struct nfsd4_rel
 	DECODE_TAIL;
 }
 
+/* For Cuju*/
+static __be32
+nfsd4_decode_cuju_cmd(struct nfsd4_compoundargs *argp, struct nfsd4_cuju_cmd *cuju_cmd)
+{
+	DECODE_HEAD;
+
+	READ_BUF(4);
+	cuju_cmd->cmd = be32_to_cpup(p++);
+
+	DECODE_TAIL;
+}
+//cuju end
+
 static __be32
 nfsd4_decode_exchange_id(struct nfsd4_compoundargs *argp,
 			 struct nfsd4_exchange_id *exid)
@@ -1785,6 +1798,9 @@ static nfsd4_dec nfsd4_dec_ops[] = {
 	[OP_READ_PLUS]		= (nfsd4_dec)nfsd4_decode_notsupp,
 	[OP_SEEK]		= (nfsd4_dec)nfsd4_decode_seek,
 	[OP_WRITE_SAME]		= (nfsd4_dec)nfsd4_decode_notsupp,
+
+	/* For Cuju */
+	[OP_CUJU_CMD]		= (nfsd4_dec)nfsd4_decode_cuju_cmd,
 };
 
 static inline bool
@@ -1792,8 +1808,15 @@ nfsd4_opnum_in_range(struct nfsd4_compoundargs *argp, struct nfsd4_op *op)
 {
 	if (op->opnum < FIRST_NFS4_OP)
 		return false;
-	else if (argp->minorversion == 0 && op->opnum > LAST_NFS40_OP)
+	else if (argp->minorversion == 0 && op->opnum > LAST_NFS40_OP) 
+	{
+		/*
+		 * For checking Cuju
+		 */
+		if(op->opnum != OP_CUJU_CMD)
+		//cuju end
 		return false;
+	}
 	else if (argp->minorversion == 1 && op->opnum > LAST_NFS41_OP)
 		return false;
 	else if (argp->minorversion == 2 && op->opnum > LAST_NFS42_OP)
@@ -3841,6 +3864,23 @@ nfsd4_encode_write(struct nfsd4_compoundres *resp, __be32 nfserr, struct nfsd4_w
 	return nfserr;
 }
 
+/* For Cuju */
+static __be32
+nfsd4_encode_cuju_cmd(struct nfsd4_compoundres *resp, __be32 nfserr, struct nfsd4_cuju_cmd *cuju_cmd)
+{
+	struct xdr_stream *xdr = &resp->xdr;
+  __be32 *p;
+	  
+	if (!nfserr) {
+		p = xdr_reserve_space(xdr, 4);
+		if (!p)
+			return nfserr_resource;
+		*p++ = cpu_to_be32(cuju_cmd->cmd);
+	}
+	return nfserr;
+}
+//cuju end
+
 static const u32 nfs4_minimal_spo_must_enforce[2] = {
 	[1] = 1 << (OP_BIND_CONN_TO_SESSION - 32) |
 	      1 << (OP_EXCHANGE_ID - 32) |
@@ -4292,6 +4332,9 @@ static nfsd4_enc nfsd4_enc_ops[] = {
 	[OP_READ_PLUS]		= (nfsd4_enc)nfsd4_encode_noop,
 	[OP_SEEK]		= (nfsd4_enc)nfsd4_encode_seek,
 	[OP_WRITE_SAME]		= (nfsd4_enc)nfsd4_encode_noop,
+
+	/* For Cuju*/
+	[OP_CUJU_CMD] = (nfsd4_enc)nfsd4_encode_cuju_cmd,
 };
 
 /*
