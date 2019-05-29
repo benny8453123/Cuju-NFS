@@ -46,6 +46,10 @@
 #include "pnfs.h"
 #include "trace.h"
 
+/* Cuju cmd */
+#include <linux/nfs4cuju.h>                                               
+//cmd
+
 #ifdef CONFIG_NFSD_V4_SECURITY_LABEL
 #include <linux/security.h>
 
@@ -1016,7 +1020,20 @@ static __be32
 nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		      struct nfsd4_cuju_cmd *cuju_cmd)
 {
-	printk(KERN_WARNING "Cuju cmd\n");
+	switch(cuju_cmd->cmd) {
+		case NFS_CUJU_CMD_NONE:
+			printk(KERN_WARNING "NFS cuju cmd: nothing\n");
+			break;
+		case NFS_CUJU_CMD_FT:
+			printk(KERN_WARNING "NFS cuju cmd: ft mode:\n");
+			break;
+		case NFS_CUJU_CMD_EPOCH:
+			printk(KERN_WARNING "NFS cuju cmd: epoch\n");
+			break;
+		case NFS_CUJU_CMD_COMMIT:
+			printk(KERN_WARNING "NFS cuju cmd: commit\n");
+			break;
+	}
 	return nfs_ok;
 }
 //end

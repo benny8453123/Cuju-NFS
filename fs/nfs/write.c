@@ -33,6 +33,10 @@
 
 #include "nfstrace.h"
 
+/* Cuju cmd */
+#include <linux/nfs4cuju.h>
+//cmd
+
 #define NFSDBG_FACILITY		NFSDBG_PAGECACHE
 
 #define MIN_POOL_WRITE		(32)
@@ -2081,6 +2085,7 @@ int nfs_cuju_cmd_send2(struct file * f) {
 	struct nfs_open_context *ctx = nfs_file_open_context(file);
 	//allocate and init ftcmd data
 	struct nfs_cuju_cmd_data *data;
+	static u32 fakecmd=0;
 
 	//allocate
 	data = mempool_alloc(nfs_cuju_cmd_mempool, GFP_NOIO);
@@ -2089,11 +2094,13 @@ int nfs_cuju_cmd_send2(struct file * f) {
 	else
 		printk(KERN_ERR "Cuju allocate cmd data fail\n");
 
+	fakecmd++;
+	fakecmd %= 4;
 	//init data
 	data->inode	= inode;
 	data->cred = ctx->cred;
 	data->args.fh = NFS_FH(inode);
-	data->args.cmd = 0xffff00ff;
+	data->args.cmd = fakecmd;
 
 	data->context = ctx;
 	data->mds_ops = &nfs_cuju_cmd_ops;
