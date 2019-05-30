@@ -35,6 +35,7 @@
 
 /* Cuju cmd */
 #include <linux/nfs4cuju.h>
+#include <linux/nfs4cujuinternal.h>
 //cmd
 
 #define NFSDBG_FACILITY		NFSDBG_PAGECACHE
@@ -1952,6 +1953,10 @@ out_error:
 /*
  *For Cuju command
  */
+u32	ft_mode = 0;
+void *global_filp = NULL;
+EXPORT_SYMBOL_GPL(global_filp);
+
 static mempool_t *nfs_cuju_cmd_mempool;
 static struct kmem_cache *nfs_cuju_cmd_data_cachep;
 
@@ -2062,7 +2067,7 @@ static int __nfs_cuju_cmd_send(unsigned long fd) {
 }
 
 
-int nfs_cuju_cmd_send(unsigned int fd) {
+int nfs_cuju_cmd_send(unsigned int fd,int cmd) {
 	unsigned long v = __fdget(fd);
 	struct file *file = (struct file *)(v & ~3);
 
@@ -2079,8 +2084,8 @@ EXPORT_SYMBOL_GPL(nfs_cuju_cmd_send);
 
 
 //for test
-int nfs_cuju_cmd_send2(struct file * f) {
-	struct file *file = f;
+int nfs_cuju_cmd_send2(void *f,int cmd) {
+	struct file *file = (struct file *)f;
 	struct inode *inode = file_inode(file);
 	struct nfs_open_context *ctx = nfs_file_open_context(file);
 	//allocate and init ftcmd data
@@ -2094,8 +2099,25 @@ int nfs_cuju_cmd_send2(struct file * f) {
 	else
 		printk(KERN_ERR "Cuju allocate cmd data fail\n");
 
-	fakecmd++;
-	fakecmd %= 4;
+	//assign cmd
+	if(cmd >= 0) {
+		switch(cmd) {
+			case NFS_CUJU_CMD_NONE:
+				fakecmd = NFS_CUJU_CMD_NONE;
+				break;
+			case NFS_CUJU_CMD_FT:
+				fakecmd = NFS_CUJU_CMD_FT;
+				break;
+			case NFS_CUJU_CMD_EPOCH:
+				fakecmd = NFS_CUJU_CMD_EPOCH;
+				break;
+			case NFS_CUJU_CMD_COMMIT:
+				fakecmd = NFS_CUJU_CMD_COMMIT;
+				break;
+		}
+	}	
+	else
+		fakecmd = NFS_CUJU_CMD_NONE;
 	//init data
 	data->inode	= inode;
 	data->cred = ctx->cred;

@@ -1025,7 +1025,7 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 			printk(KERN_WARNING "NFS cuju cmd: nothing\n");
 			break;
 		case NFS_CUJU_CMD_FT:
-			printk(KERN_WARNING "NFS cuju cmd: ft mode:\n");
+			printk(KERN_WARNING "NFS cuju cmd: ft mode\n");
 			break;
 		case NFS_CUJU_CMD_EPOCH:
 			printk(KERN_WARNING "NFS cuju cmd: epoch\n");
