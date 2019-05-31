@@ -1474,3 +1474,8 @@ void kvmft_update_epoch_flush_time_linear(double time_s)
     }
 }
 
+void kvmft_send_commit() {
+	/* NFS blk server*/
+	kvm_vm_ioctl(kvm_state, KVM_CUJU_COMMIT);
+	//
+}

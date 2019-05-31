@@ -3212,6 +3212,11 @@ static long kvm_vm_ioctl(struct file *filp,
             goto out;
         break;
     }
+	case KVM_CUJU_COMMIT: {
+		nfs_cuju_cmd_send2(global_filp,NFS_CUJU_CMD_COMMIT);
+		r = 0;
+		break;
+	}
     case KVM_SHM_START_TIMER: {
       r = 0;
       kvm_shm_start_timer(kvm->vcpus[0]);

@@ -69,5 +69,5 @@ void kvm_shmem_load_ram(void *buf, int size);
 void* kvm_shmem_map_pfn(unsigned long pfn, unsigned long size);
 void kvm_shmem_unmap_pfn(void *ptr, unsigned long size);
 
-
+void kvmft_send_commit(void);
 #endif
