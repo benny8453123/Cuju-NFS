@@ -653,7 +653,6 @@ static int nfs_need_check_write(struct file *filp, struct inode *inode)
 	return 0;
 }
 
-extern u32 ft_mode;
 ssize_t nfs_file_write(struct kiocb *iocb, struct iov_iter *from)
 {
 	struct file *file = iocb->ki_filp;
@@ -670,10 +669,9 @@ ssize_t nfs_file_write(struct kiocb *iocb, struct iov_iter *from)
 		result = generic_write_checks(iocb, from);
 		if (result <= 0)
 			return result;
+		//temporary use global file pointer and just handle one vm
 		if(global_filp == NULL)
 			global_filp = (void *)file;
-		if(ft_mode)
-			nfs_cuju_cmd_send2(global_filp,-1);
 
 		return nfs_file_direct_write(iocb, from);
 	}

@@ -1953,7 +1953,6 @@ out_error:
 /*
  *For Cuju command
  */
-u32	ft_mode = 0;
 void *global_filp = NULL;
 EXPORT_SYMBOL_GPL(global_filp);
 
