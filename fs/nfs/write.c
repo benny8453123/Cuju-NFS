@@ -1970,8 +1970,8 @@ static void nfs_cuju_cmd_prepare(struct rpc_task *task, void *calldata)
 static void nfs_cuju_cmd_done(struct rpc_task *task, void *calldata)
 {
  	//For cuju check callback
-	//struct nfs_cuju_cmd_data *data = calldata;
-	//NFS_PROTO(data->inode)->commit_done(task, data);
+	struct nfs_cuju_cmd_data *data = calldata;
+	NFS_PROTO(data->inode)->cuju_cmd_done(task, data);
 }
 
 static void nfs_cuju_cmd_release(void *calldata)
