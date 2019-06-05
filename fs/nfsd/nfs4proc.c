@@ -48,6 +48,7 @@
 
 /* Cuju cmd */
 #include <linux/nfs4cuju.h>
+#include "cujuft.h"
 u32 ft_mode = 0;
 //cmd
 
@@ -999,59 +1000,34 @@ static void *nfsd4_cuju_copy_kvec(struct kvec *vec, int vlen)
 	}
 	return new_kvec;
 }
-/*
-static __be32 
+
+//static __be32
+void*
 nfsd4_cuju_fake_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct file *file,
 		struct kvec *vec, int vlen,
-		unsigned long *cnt, struct nfsd4_write *write)
+		unsigned long *cnt, struct nfsd4_write *write,int cmd)
 {
-	volatile struct kvec *new_kvec;
-	struct svc_export *exp;
-	struct inode    *inode;
+	struct nfsd4_cuju_write_request *req = kmalloc(sizeof(struct nfsd4_cuju_write_request),GFP_KERNEL);
 	
-	__be32      err = 0;
-	int     host_err;
-	int     stable = write->wr_how_written;
-	int     use_wgather;
-	unsigned int    pflags = current->flags;
-		
-	if (test_bit(RQ_LOCAL, &rqstp->rq_flags))*/
-		/*
-		 * We want less throttling in balance_dirty_pages()
-		 * and shrink_inactive_list() so that nfs to
-		 * localhost doesn't cause nfsd to lock up due to all
-		 * the client's dirty pages or its congested queue.
-		 */
-/*		current->flags |= PF_LESS_THROTTLE;
+	//copy write info
+	req->cmd = cmd;
+	req->rq_flags = rqstp->rq_flags;
+	req->rq_vers = rqstp->rq_vers;
+	req->current_fh = fhp;
+	req->file = file;
+	req->wr_offset = write->wr_offset;
+	req->wr_buflen = write->wr_buflen;
+	req->wr_how_written = write->wr_how_written;
+	req->vec = nfsd4_cuju_copy_kvec(vec,vlen);
+	req->nvecs = vlen;
 
-	inode = file_inode(file);
-	exp   = fhp->fh_export;
-
-	use_wgather = (rqstp->rq_vers == 2) && EX_WGATHER(exp);
-
-	if (!EX_ISSYNC(exp))
-		stable = 0;
-	//copy the write kvec
-	new_kvec = nfsd4_cuju_copy_kvec(vec,vlen);
-	//nfsd_vfs_write(rqstp, fhp, file,write->wr_offset, new_kvec, vlen, cnt,
-	//						                    &write->wr_how_written);
-	host_err = vlen;
-	*cnt = host_err;
-	nfsd4_cuju_free_kvec(new_kvec,vlen);
-	//
-
-out_nfserr:
-	dprintk("nfsd: write complete host_err=%d\n", host_err);
-	if (host_err >= 0)
-		err = 0;
-	else
-		err = nfserrno(host_err);
-	if (test_bit(RQ_LOCAL, &rqstp->rq_flags))
-		tsk_restore_flags(current, pflags, PF_LESS_THROTTLE);
-	return err;
+	//handle callback
+	*cnt = write->wr_buflen;
+	//return 0;
+	return req;
 }
 //cuju end
-*/		
+
 static __be32
 nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	    struct nfsd4_write *write)
@@ -1061,7 +1037,7 @@ nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	__be32 status = nfs_ok;
 	unsigned long cnt;
 	int nvecs;
-	struct kvec *new_kvec;
+	struct nfsd4_cuju_write_request *req;
 
 	if (write->wr_offset >= OFFSET_MAX)
 		return nfserr_inval;
@@ -1085,12 +1061,13 @@ nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 					write->wr_offset, rqstp->rq_vec, nvecs, &cnt,
 					&write->wr_how_written);
 	else {
-	new_kvec = nfsd4_cuju_copy_kvec(rqstp->rq_vec,nvecs);
-	status = nfsd_vfs_write(rqstp, &cstate->current_fh, filp,
-				write->wr_offset, new_kvec, nvecs, &cnt,
-				&write->wr_how_written);
-	nfsd4_cuju_free_kvec(new_kvec,nvecs);
-		//status = nfsd4_cuju_fake_vfs_write(rqstp, &cstate->current_fh, filp, rqstp->rq_vec, nvecs, &cnt, write);
+		req = nfsd4_cuju_fake_vfs_write(rqstp, &cstate->current_fh, filp,
+					rqstp->rq_vec, nvecs, 
+					&cnt,	write, 1);
+					//&cnt,	write, );
+		status = nfsd4_cuju_vfs_write(req, &cnt);
+		nfsd4_cuju_free_kvec(req->vec, req->nvecs);
+		kfree(req);
 	}
 	fput(filp);
 

@@ -45,6 +45,9 @@
 
 #define NFSDDBG_FACILITY		NFSDDBG_FILEOP
 
+/* For Cuju */
+#include "cujuft.h"
+//cuju end
 
 /*
  * This is a cache of readahead params that help us choose the proper
@@ -906,6 +909,71 @@ static int wait_for_concurrent_writes(struct file *file)
 	last_dev = inode->i_sb->s_dev;
 	return err;
 }
+
+/* For Cuju */
+__be32
+nfsd4_cuju_vfs_write(struct nfsd4_cuju_write_request *req, unsigned long *cnt)
+{
+	struct svc_export   *exp ;
+	struct svc_fh *fhp = req->current_fh;
+	struct inode        *inode;
+	mm_segment_t        oldfs;
+	__be32          err = 0;
+	int         host_err;
+	int         stable = req->wr_how_written;
+	int         use_wgather;
+	loff_t          pos = req->wr_offset;
+	loff_t          end = LLONG_MAX;
+	unsigned int 	pflags = current->flags;
+
+	if (test_bit(RQ_LOCAL, &req->rq_flags))
+		/*
+		 * We want less throttling in balance_dirty_pages()
+		 * and shrink_inactive_list() so that nfs to
+		 * localhost doesn't cause nfsd to lock up due to all
+		 * the client's dirty pages or its congested queue.
+		 */
+		current->flags |= PF_LESS_THROTTLE;
+	
+	inode 	= file_inode(req->file);
+	exp		= fhp->fh_export;
+
+	use_wgather = (req->rq_vers == 2) && EX_WGATHER(exp);
+
+	if (!EX_ISSYNC(exp))
+		stable = 0;
+
+	/* Write the data. */
+	oldfs = get_fs(); set_fs(KERNEL_DS);
+	host_err = vfs_writev(req->file, (struct iovec __user *)req->vec, req->nvecs, &pos);
+	set_fs(oldfs);
+	if (host_err < 0)
+		goto out_nfserr;
+	*cnt = host_err;
+	nfsdstats.io_write += host_err;
+	fsnotify_modify(req->file);
+
+	if (stable) {
+		if (use_wgather) {
+			host_err = wait_for_concurrent_writes(req->file);
+		} else {
+			if (*cnt)
+				end = req->wr_offset + *cnt - 1;
+			host_err = vfs_fsync_range(req->file, req->wr_offset, end, 0);
+		}
+	}
+
+out_nfserr:
+	dprintk("cuju_nfsd: write complete host_err=%d\n", host_err);
+	if (host_err >= 0)
+		err = 0;
+	else
+		err = nfserrno(host_err);
+	if (test_bit(RQ_LOCAL, &req->rq_flags))
+		tsk_restore_flags(current, pflags, PF_LESS_THROTTLE);
+	return err;
+}
+//cuju end
 
 __be32
 nfsd_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct file *file,
