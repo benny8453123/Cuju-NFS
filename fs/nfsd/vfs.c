@@ -914,8 +914,6 @@ static int wait_for_concurrent_writes(struct file *file)
 __be32
 nfsd4_cuju_vfs_write(struct nfsd4_cuju_write_request *req, unsigned long *cnt)
 {
-	struct svc_export   *exp ;
-	struct svc_fh *fhp = req->current_fh;
 	struct inode        *inode;
 	mm_segment_t        oldfs;
 	__be32          err = 0;
@@ -936,11 +934,9 @@ nfsd4_cuju_vfs_write(struct nfsd4_cuju_write_request *req, unsigned long *cnt)
 		current->flags |= PF_LESS_THROTTLE;
 	
 	inode 	= file_inode(req->file);
-	exp		= fhp->fh_export;
+	use_wgather = req->use_wgather;
 
-	use_wgather = (req->rq_vers == 2) && EX_WGATHER(exp);
-
-	if (!EX_ISSYNC(exp))
+	if (req->sync)
 		stable = 0;
 
 	/* Write the data. */

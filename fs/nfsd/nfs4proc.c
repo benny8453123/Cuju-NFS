@@ -48,8 +48,11 @@
 
 /* Cuju cmd */
 #include <linux/nfs4cuju.h>
+#include <linux/types.h>
+#include <linux/list.h>
 #include "cujuft.h"
 u32 ft_mode = 0;
+LIST_HEAD(cuju_write_head);
 //cmd
 
 #ifdef CONFIG_NFSD_V4_SECURITY_LABEL
@@ -979,6 +982,20 @@ static int fill_in_write_vector(struct kvec *vec, struct nfsd4_write *write)
 }
 
 /* For Cuju*/
+static void nfsd4_cuju_list_add_tail(struct nfsd4_cuju_write_request *req, int cmd)
+{
+		struct nfsd4_cuju_write_request *reqp;
+	if(req == NULL) {
+		reqp = kmalloc(sizeof(struct nfsd4_cuju_write_request),GFP_KERNEL);
+		reqp->cmd = cmd;
+		list_add_tail(&reqp->list, &cuju_write_head);
+	}
+	else {
+		req->cmd = cmd;
+		list_add_tail(&req->list, &cuju_write_head);
+	}
+}
+
 static void nfsd4_cuju_free_kvec(struct kvec *vec, int vlen) {
 	int i;
 
@@ -1001,19 +1018,23 @@ static void *nfsd4_cuju_copy_kvec(struct kvec *vec, int vlen)
 	return new_kvec;
 }
 
-//static __be32
-void*
+__be32
 nfsd4_cuju_fake_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct file *file,
 		struct kvec *vec, int vlen,
-		unsigned long *cnt, struct nfsd4_write *write,int cmd)
+		unsigned long *cnt, struct nfsd4_write *write)
 {
 	struct nfsd4_cuju_write_request *req = kmalloc(sizeof(struct nfsd4_cuju_write_request),GFP_KERNEL);
 	
-	//copy write info
-	req->cmd = cmd;
+	/* copy write info */
+	//cmd type
+	req->cmd = NFS_CUJU_CMD_WRITE;
+	//rqstp
 	req->rq_flags = rqstp->rq_flags;
 	req->rq_vers = rqstp->rq_vers;
-	req->current_fh = fhp;
+	//fhp
+	req->use_wgather = (req->rq_vers == 2) && EX_WGATHER(fhp->fh_export);
+	req->sync = !EX_ISSYNC(fhp->fh_export);
+	//req->current_fh = fhp;
 	req->file = file;
 	req->wr_offset = write->wr_offset;
 	req->wr_buflen = write->wr_buflen;
@@ -1021,10 +1042,12 @@ nfsd4_cuju_fake_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct fil
 	req->vec = nfsd4_cuju_copy_kvec(vec,vlen);
 	req->nvecs = vlen;
 
-	//handle callback
+	/* insert in cuju write list */
+	nfsd4_cuju_list_add_tail(req, NFS_CUJU_CMD_WRITE);
+
+	/* handle callback */
 	*cnt = write->wr_buflen;
-	//return 0;
-	return req;
+	return 0;
 }
 //cuju end
 
@@ -1037,7 +1060,6 @@ nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	__be32 status = nfs_ok;
 	unsigned long cnt;
 	int nvecs;
-	struct nfsd4_cuju_write_request *req;
 
 	if (write->wr_offset >= OFFSET_MAX)
 		return nfserr_inval;
@@ -1060,15 +1082,11 @@ nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		status = nfsd_vfs_write(rqstp, &cstate->current_fh, filp,
 					write->wr_offset, rqstp->rq_vec, nvecs, &cnt,
 					&write->wr_how_written);
-	else {
-		req = nfsd4_cuju_fake_vfs_write(rqstp, &cstate->current_fh, filp,
+	else
+		status = nfsd4_cuju_fake_vfs_write(rqstp, &cstate->current_fh, filp,
 					rqstp->rq_vec, nvecs, 
-					&cnt,	write, 1);
-					//&cnt,	write, );
-		status = nfsd4_cuju_vfs_write(req, &cnt);
-		nfsd4_cuju_free_kvec(req->vec, req->nvecs);
-		kfree(req);
-	}
+					&cnt, write);
+
 	fput(filp);
 
 	write->wr_bytes_written = cnt;
@@ -1079,6 +1097,41 @@ nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 /*
  * For Cuju
  */
+static void nfs4_cuju_flush_request(void)
+{
+	//Initial
+	struct list_head *pos, *n;
+	struct nfsd4_cuju_write_request *req;
+	unsigned long cnt;
+	__be32 status;
+
+	//Flush & delete until epoch tag
+	list_for_each_safe(pos, n, &cuju_write_head)
+	{
+		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
+
+		if(req->cmd == NFS_CUJU_CMD_EPOCH) {
+			//Delete this entry from list
+			list_del(pos);
+			//Free this nfsd4_cuju_write_request struct
+			kfree(req);
+			break;
+		}
+		else {
+			/* write case */
+			//Delete this entry from list
+			list_del(pos);
+			//flush request
+			status = nfsd4_cuju_vfs_write(req, &cnt);
+			if(status != 0 || cnt != req->wr_buflen)
+				printk(KERN_WARNING "NFS cuju cmd: write req flush error!\n");
+			//Free kvec & nfsd4_cuju_write_request struct
+			nfsd4_cuju_free_kvec(req->vec, req->nvecs);
+			kfree(req);
+		}
+	}
+}
+
 static __be32
 nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		      struct nfsd4_cuju_cmd *cuju_cmd)
@@ -1087,15 +1140,20 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		case NFS_CUJU_CMD_NONE:
 			printk(KERN_WARNING "NFS cuju cmd: nothing\n");
 			break;
+
 		case NFS_CUJU_CMD_FT:
 			printk(KERN_WARNING "NFS cuju cmd: ft mode\n");
 			ft_mode = 1;
 			break;
+
 		case NFS_CUJU_CMD_EPOCH:
 			printk(KERN_WARNING "NFS cuju cmd: epoch\n");
+			nfsd4_cuju_list_add_tail(NULL, NFS_CUJU_CMD_EPOCH);
 			break;
+
 		case NFS_CUJU_CMD_COMMIT:
 			printk(KERN_WARNING "NFS cuju cmd: commit\n");
+			nfs4_cuju_flush_request();
 			break;
 	}
 	return nfs_ok;
