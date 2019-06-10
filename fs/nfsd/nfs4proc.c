@@ -50,7 +50,10 @@
 #include <linux/nfs4cuju.h>
 #include <linux/types.h>
 #include <linux/list.h>
+#include <linux/spinlock_types.h>
+#include <linux/spinlock.h>
 #include "cujuft.h"
+spinlock_t cuju_lock;
 u32 ft_mode = 0;
 LIST_HEAD(cuju_write_head);
 //cmd
@@ -985,6 +988,7 @@ static int fill_in_write_vector(struct kvec *vec, struct nfsd4_write *write)
 static void nfsd4_cuju_list_add_tail(struct nfsd4_cuju_write_request *req, int cmd)
 {
 		struct nfsd4_cuju_write_request *reqp;
+	spin_lock(&cuju_lock);
 	if(req == NULL) {
 		reqp = kmalloc(sizeof(struct nfsd4_cuju_write_request),GFP_KERNEL);
 		reqp->cmd = cmd;
@@ -994,6 +998,7 @@ static void nfsd4_cuju_list_add_tail(struct nfsd4_cuju_write_request *req, int c
 		req->cmd = cmd;
 		list_add_tail(&req->list, &cuju_write_head);
 	}
+	spin_unlock(&cuju_lock);
 }
 
 static void nfsd4_cuju_free_kvec(struct kvec *vec, int vlen) {
@@ -1106,6 +1111,7 @@ static void nfs4_cuju_flush_request(void)
 	__be32 status;
 
 	//Flush & delete until epoch tag
+	spin_lock(&cuju_lock);
 	list_for_each_safe(pos, n, &cuju_write_head)
 	{
 		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
@@ -1130,6 +1136,7 @@ static void nfs4_cuju_flush_request(void)
 			kfree(req);
 		}
 	}
+	spin_unlock(&cuju_lock);
 }
 
 static __be32
@@ -1142,17 +1149,18 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 			break;
 
 		case NFS_CUJU_CMD_FT:
-			printk(KERN_WARNING "NFS cuju cmd: ft mode\n");
+			printk(KERN_WARNING "NFS cuju cmd: ft mode\t%d\n",current->pid);
+			spin_lock_init(&cuju_lock);
 			ft_mode = 1;
 			break;
 
 		case NFS_CUJU_CMD_EPOCH:
-			printk(KERN_WARNING "NFS cuju cmd: epoch\n");
+			printk(KERN_WARNING "NFS cuju cmd: epoch\t%d\n",current->pid);
 			nfsd4_cuju_list_add_tail(NULL, NFS_CUJU_CMD_EPOCH);
 			break;
 
 		case NFS_CUJU_CMD_COMMIT:
-			printk(KERN_WARNING "NFS cuju cmd: commit\n");
+			printk(KERN_WARNING "NFS cuju cmd: commit\t%d\n",current->pid);
 			nfs4_cuju_flush_request();
 			break;
 	}
