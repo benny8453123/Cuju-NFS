@@ -949,15 +949,18 @@ nfsd4_cuju_vfs_write(struct nfsd4_cuju_write_request *req, unsigned long *cnt)
 	nfsdstats.io_write += host_err;
 	fsnotify_modify(req->file);
 
-	if (stable) {
+	host_err = vfs_fsync_range(req->file, (loff_t)req->wr_offset, end, 1);
+	/*
+	//if (stable) {
+	if (1) {
 		if (use_wgather) {
 			host_err = wait_for_concurrent_writes(req->file);
 		} else {
 			if (*cnt)
 				end = req->wr_offset + *cnt - 1;
-			host_err = vfs_fsync_range(req->file, req->wr_offset, end, 0);
+			host_err = vfs_fsync_range(req->file, req->wr_offset, end, 1);
 		}
-	}
+	}*/
 
 out_nfserr:
 	dprintk("cuju_nfsd: write complete host_err=%d\n", host_err);

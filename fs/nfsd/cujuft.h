@@ -28,9 +28,16 @@ struct nfsd4_cuju_write_request {
 };
 
 /* nfs4proc.c */
-__be32  nfsd4_cuju_vfs_write(struct nfsd4_cuju_write_request *req, unsigned long *cnt);
-/* vfs.c */
 __be32
 nfsd4_cuju_fake_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct file *file,
 		struct kvec *vec, int vlen,
 		unsigned long *cnt, struct nfsd4_write *write);
+__be32
+nfsd4_cuju_check_fast_read(struct file *file, loff_t offset, struct kvec *vec, int vlen, unsigned long count);
+__be32
+nfsd4_cuju_do_fast_read(struct file *file, loff_t offset, struct kvec *vec, unsigned long count);
+__be32
+nfsd4_cuju_copy_to_vec(struct kvec *dest_vec, int dest_vlen, unsigned long dest_count, struct kvec *src_vec);
+/* vfs.c */
+__be32
+nfsd4_cuju_vfs_write(struct nfsd4_cuju_write_request *req, unsigned long *cnt);

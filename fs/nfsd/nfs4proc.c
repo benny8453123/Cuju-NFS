@@ -50,10 +50,9 @@
 #include <linux/nfs4cuju.h>
 #include <linux/types.h>
 #include <linux/list.h>
-#include <linux/spinlock_types.h>
-#include <linux/spinlock.h>
+#include <linux/mutex.h>
 #include "cujuft.h"
-spinlock_t cuju_lock;
+struct mutex cuju_lock;
 u32 ft_mode = 0;
 LIST_HEAD(cuju_write_head);
 //cmd
@@ -782,7 +781,7 @@ nfsd4_read(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	 * To ensure proper ordering, we therefore turn off zero copy if
 	 * the client wants us to do more in this compound:
 	 */
-	if (!nfsd4_last_compound_op(rqstp))
+	if (!nfsd4_last_compound_op(rqstp) || ft_mode)
 		clear_bit(RQ_SPLICE_OK, &rqstp->rq_flags);
 
 	/* check stateid */
@@ -988,7 +987,7 @@ static int fill_in_write_vector(struct kvec *vec, struct nfsd4_write *write)
 static void nfsd4_cuju_list_add_tail(struct nfsd4_cuju_write_request *req, int cmd)
 {
 		struct nfsd4_cuju_write_request *reqp;
-	spin_lock(&cuju_lock);
+	mutex_lock(&cuju_lock);
 	if(req == NULL) {
 		reqp = kmalloc(sizeof(struct nfsd4_cuju_write_request),GFP_KERNEL);
 		reqp->cmd = cmd;
@@ -998,7 +997,7 @@ static void nfsd4_cuju_list_add_tail(struct nfsd4_cuju_write_request *req, int c
 		req->cmd = cmd;
 		list_add_tail(&req->list, &cuju_write_head);
 	}
-	spin_unlock(&cuju_lock);
+	mutex_unlock(&cuju_lock);
 }
 
 static void nfsd4_cuju_free_kvec(struct kvec *vec, int vlen) {
@@ -1105,38 +1104,187 @@ nfsd4_write(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 static void nfs4_cuju_flush_request(void)
 {
 	//Initial
+	LIST_HEAD(flush_list);
 	struct list_head *pos, *n;
 	struct nfsd4_cuju_write_request *req;
 	unsigned long cnt;
 	__be32 status;
 
-	//Flush & delete until epoch tag
-	spin_lock(&cuju_lock);
+	/* move to flush list until epoch tag */
+	mutex_lock(&cuju_lock);
 	list_for_each_safe(pos, n, &cuju_write_head)
 	{
 		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
-
-		if(req->cmd == NFS_CUJU_CMD_EPOCH) {
-			//Delete this entry from list
-			list_del(pos);
-			//Free this nfsd4_cuju_write_request struct
-			kfree(req);
+		//Delete this entry from list & move to flush list
+		list_move_tail(pos, &flush_list);
+		/* epoch case */
+		if(req->cmd == NFS_CUJU_CMD_EPOCH)
 			break;
-		}
-		else {
-			/* write case */
-			//Delete this entry from list
-			list_del(pos);
-			//flush request
+	}
+	//mutex_unlock(&cuju_lock);
+
+	//flush & delete entry from flush list
+	list_for_each_safe(pos, n, &flush_list) {
+		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
+
+		//del from list
+		list_del(pos);
+
+		//flush write request
+		if(req->cmd == NFS_CUJU_CMD_WRITE) {
 			status = nfsd4_cuju_vfs_write(req, &cnt);
 			if(status != 0 || cnt != req->wr_buflen)
-				printk(KERN_WARNING "NFS cuju cmd: write req flush error!\n");
+				printk(KERN_WARNING "NFS cuju write error: write req flush error!\n");
 			//Free kvec & nfsd4_cuju_write_request struct
 			nfsd4_cuju_free_kvec(req->vec, req->nvecs);
-			kfree(req);
 		}
+
+		//Free this nfsd4_cuju_write_request struct
+		kfree(req);
 	}
-	spin_unlock(&cuju_lock);
+	mutex_unlock(&cuju_lock);
+}
+
+__be32 nfsd4_cuju_copy_to_vec(struct kvec *dest_vec, int dest_vlen, unsigned long dest_count, struct kvec *src_vec) {
+	int i;
+	long total = 0;
+	void *p = src_vec->iov_base;
+
+	for(i=0;i<dest_vlen;i++) {
+		if( (p + dest_vec[i].iov_len) > (src_vec->iov_base + src_vec->iov_len) )
+			printk(KERN_WARNING "NFS cuju read error: read memcpy error!\n");
+		memcpy(dest_vec[i].iov_base, p,  dest_vec[i].iov_len);
+		total += dest_vec[i].iov_len;
+		p += dest_vec[i].iov_len;
+	}
+	return (dest_count == (p-src_vec->iov_base));
+}
+
+__be32
+nfsd4_cuju_check_fast_read(struct file *file, loff_t offset, struct kvec *vec, int vlen, unsigned long count)
+{
+	struct nfsd4_cuju_write_request *req;
+	u64 roffset = (u64)offset;
+
+	mutex_lock(&cuju_lock);
+	//if list is empty
+	if(list_empty(&cuju_write_head))
+		goto out;
+
+	list_for_each_entry(req, &cuju_write_head, list) {
+		if(req->cmd == NFS_CUJU_CMD_EPOCH)
+			continue;
+
+		if(roffset < req->wr_offset) {
+			if(roffset + count > req->wr_offset)
+				return 1;
+		}
+		else if(roffset > req->wr_offset) {
+			if(roffset < req->wr_offset + req->wr_buflen)
+				return 1;
+		}
+		else if(roffset == req->wr_offset) {
+				return 1;
+		}
+		else
+			continue;
+	}
+
+out:
+	mutex_unlock(&cuju_lock);
+	return 0;
+}
+
+__be32
+nfsd4_cuju_do_fast_read(struct file *file, loff_t offset, struct kvec *vec, unsigned long count)
+{
+	struct nfsd4_cuju_write_request *req;
+	long long total_len,tmp_len;
+	int i;
+	u64 roffset = (u64)offset;
+	u64 start_offset;
+	void *p;
+
+	//if list is empty
+	if(list_empty(&cuju_write_head))
+		goto out;
+
+	list_for_each_entry(req, &cuju_write_head, list) {
+		if(req->cmd == NFS_CUJU_CMD_EPOCH)
+			continue;
+		i = 0;
+		p = vec->iov_base;
+
+		if(roffset < req->wr_offset) {
+			if(roffset + count > req->wr_offset) {
+				start_offset = req->wr_offset - roffset;
+				if(roffset + count < req->wr_offset + req->wr_buflen)
+					total_len = roffset + count - req->wr_offset;
+				else
+					total_len = req->wr_buflen;
+
+				p += start_offset;
+				while(total_len > 0) {
+					tmp_len = min_t(long, total_len, req->vec[i].iov_len);
+					memcpy(p, req->vec[i].iov_base, tmp_len);
+					p += tmp_len;
+					i++;
+					total_len -= tmp_len;
+				}
+			}
+		}
+		else if(roffset > req->wr_offset) {
+			if(roffset < req->wr_offset + req->wr_buflen) {
+				//count start vec
+				total_len = roffset - req->wr_offset;
+				while(total_len > 0) {
+					if(total_len - req->vec[i].iov_len < 0)
+						break;
+					tmp_len = min_t(long, total_len, req->vec[i].iov_len);
+					i++;
+					total_len -= tmp_len;
+				}
+				tmp_len = total_len;
+				if(roffset + count > req->wr_offset + req->wr_buflen)
+					total_len = req->wr_offset + req->wr_buflen - roffset;
+				else
+					total_len = count;
+				if(tmp_len > 0) {
+					memcpy(p, req->vec[i].iov_base+tmp_len, req->vec[i].iov_len-tmp_len);
+					p += req->vec[i].iov_len-tmp_len;
+					i++;
+					total_len -= req->vec[i].iov_len-tmp_len;
+				}
+				while(total_len > 0) {
+					tmp_len = min_t(long, total_len, req->vec[i].iov_len);
+					memcpy(p, req->vec[i].iov_base, tmp_len);
+					p += tmp_len;
+					i++;
+					total_len -= tmp_len;
+				}
+			}
+		}
+		else if(roffset == req->wr_offset) {
+			p =  vec->iov_base;
+			if(count < req->wr_buflen)
+				total_len = count;
+			else
+				total_len = req->wr_buflen;
+			while(total_len > 0) {
+				tmp_len = min_t(long, total_len, req->vec[i].iov_len);
+				memcpy(p, req->vec[i].iov_base, tmp_len);
+				p += tmp_len;
+				i++;
+				total_len -= tmp_len;
+			}
+		}
+		else
+			continue;
+	}
+
+out:
+	mutex_unlock(&cuju_lock);
+	return 0;
 }
 
 static __be32
@@ -1150,17 +1298,17 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 
 		case NFS_CUJU_CMD_FT:
 			printk(KERN_WARNING "NFS cuju cmd: ft mode\t%d\n",current->pid);
-			spin_lock_init(&cuju_lock);
+			mutex_init(&cuju_lock);
 			ft_mode = 1;
 			break;
 
 		case NFS_CUJU_CMD_EPOCH:
-			printk(KERN_WARNING "NFS cuju cmd: epoch\t%d\n",current->pid);
+			//printk(KERN_WARNING "NFS cuju cmd: epoch\t%d\n",current->pid);
 			nfsd4_cuju_list_add_tail(NULL, NFS_CUJU_CMD_EPOCH);
 			break;
 
 		case NFS_CUJU_CMD_COMMIT:
-			printk(KERN_WARNING "NFS cuju cmd: commit\t%d\n",current->pid);
+			//printk(KERN_WARNING "NFS cuju cmd: commit\t%d\n",current->pid);
 			nfs4_cuju_flush_request();
 			break;
 	}
