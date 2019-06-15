@@ -3427,8 +3427,6 @@ static __be32 nfsd4_encode_splice_read(
 	return 0;
 }
 
-//test
-unsigned long ftmax = 0;
 static __be32 nfsd4_encode_readv(struct nfsd4_compoundres *resp,
 				 struct nfsd4_read *read,
 				 struct file *file, unsigned long maxcount)
@@ -3467,17 +3465,17 @@ static __be32 nfsd4_encode_readv(struct nfsd4_compoundres *resp,
 	}
 	read->rd_vlen = v;
 
-	//if(ft_mode && nfsd4_cuju_check_fast_read(file, read->rd_offset, resp->rqstp->rq_vec,
-	//			                read->rd_vlen, maxcount)) {
 	if(ft_mode) {
 		if(global_read_kvec == NULL) {
 			mutex_init(&cuju_read_lock);
 			global_read_kvec = (struct kvec*)kzalloc(sizeof(struct kvec), GFP_KERNEL);
 		}
 
-		mutex_lock(&cuju_read_lock);
 		if(global_read_kvec->iov_len < maxcount) {
 			unsigned int order;
+
+			mutex_lock(&cuju_read_lock);
+
 			if(global_read_kvec->iov_len != 0)
 				free_pages((unsigned long)global_read_kvec->iov_base,
 						fls_long(global_read_kvec->iov_len/4096)-1);
@@ -3487,21 +3485,29 @@ static __be32 nfsd4_encode_readv(struct nfsd4_compoundres *resp,
 			if(global_read_kvec->iov_base == 0)
 				printk(KERN_WARNING "NFS cuju read error; out of memory\n");
 			global_read_kvec->iov_len = (1 << order)*4096;
+
+			mutex_unlock(&cuju_read_lock);
 		}
 
-		nfserr = nfsd_readv(file, read->rd_offset, global_read_kvec, 1, &maxcount);
-		//do fast read
+
 		if(nfsd4_cuju_check_fast_read(file, read->rd_offset, resp->rqstp->rq_vec,
-					read->rd_vlen, maxcount))
-		nfsd4_cuju_do_fast_read(file, read->rd_offset, global_read_kvec, maxcount);
+					read->rd_vlen, maxcount)) {
+			mutex_lock(&cuju_read_lock);
+			nfserr = nfsd_readv(file, read->rd_offset, global_read_kvec, 1, &maxcount);
+			//do fast read
+			nfsd4_cuju_do_fast_read(file, read->rd_offset, global_read_kvec, maxcount);
+			nfsd4_cuju_copy_to_vec(resp->rqstp->rq_vec, read->rd_vlen, maxcount, 
+					global_read_kvec);
+			mutex_unlock(&cuju_read_lock);
+		}
+		else {
+			nfserr = nfsd_readv(file, read->rd_offset, resp->rqstp->rq_vec,
+					read->rd_vlen, &maxcount);
+		}
 		if (nfserr)
 			return nfserr;
-		nfsd4_cuju_copy_to_vec(resp->rqstp->rq_vec, read->rd_vlen, maxcount, global_read_kvec);
-		mutex_unlock(&cuju_read_lock);
 	}
 	else {
-		if(maxcount > ftmax)
-			ftmax = maxcount;
 		nfserr = nfsd_readv(file, read->rd_offset, resp->rqstp->rq_vec,
 				read->rd_vlen, &maxcount);
 		if (nfserr)
@@ -3562,8 +3568,17 @@ nfsd4_encode_read(struct nfsd4_compoundres *resp, __be32 nfserr,
 		ra = nfsd_init_raparms(file);
 
 	if (file->f_op->splice_read &&
-	    test_bit(RQ_SPLICE_OK, &resp->rqstp->rq_flags))
-		nfserr = nfsd4_encode_splice_read(resp, read, file, maxcount);
+	    test_bit(RQ_SPLICE_OK, &resp->rqstp->rq_flags)) {
+		if(ft_mode) {
+			if(nfsd4_cuju_check_fast_read(file, read->rd_offset, resp->rqstp->rq_vec,
+						read->rd_vlen, maxcount))
+				nfserr = nfsd4_encode_readv(resp, read, file, maxcount);
+			else
+				nfserr = nfsd4_encode_splice_read(resp, read, file, maxcount);
+		}
+		else
+			nfserr = nfsd4_encode_splice_read(resp, read, file, maxcount);
+	}
 	else
 		nfserr = nfsd4_encode_readv(resp, read, file, maxcount);
 

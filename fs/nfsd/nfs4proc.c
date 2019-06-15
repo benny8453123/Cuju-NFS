@@ -781,7 +781,7 @@ nfsd4_read(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	 * To ensure proper ordering, we therefore turn off zero copy if
 	 * the client wants us to do more in this compound:
 	 */
-	if (!nfsd4_last_compound_op(rqstp) || ft_mode)
+	if (!nfsd4_last_compound_op(rqstp))
 		clear_bit(RQ_SPLICE_OK, &rqstp->rq_flags);
 
 	/* check stateid */
@@ -1165,6 +1165,103 @@ nfsd4_cuju_check_fast_read(struct file *file, loff_t offset, struct kvec *vec, i
 {
 	struct nfsd4_cuju_write_request *req;
 	u64 roffset = (u64)offset;
+	int ret = 1;
+
+	mutex_lock(&cuju_lock);
+	//if list is empty
+	if(list_empty(&cuju_write_head)) {
+		ret = 0;
+		goto out;
+	}
+
+	list_for_each_entry(req, &cuju_write_head, list) {
+		if(req->cmd == NFS_CUJU_CMD_EPOCH)
+			continue;
+
+		if(roffset < req->wr_offset) {
+			if(roffset + count > req->wr_offset)
+				goto out;
+		}
+		else if(roffset > req->wr_offset) {
+			if(roffset < req->wr_offset + req->wr_buflen)
+				goto out;
+		}
+		else if(roffset == req->wr_offset) {
+				goto out;
+		}
+		else
+			continue;
+	}
+
+	ret = 0;
+
+out:
+	mutex_unlock(&cuju_lock);
+	return ret;
+}
+
+static void nfsd4_cuju_fast_read_vec_copy(struct kvec *dst, u64 d_skip, unsigned long count,
+		struct nfsd4_cuju_write_request *req, u64 s_skip, size_t size) {
+	int s_i=-1, d_i=-1, i;
+	u64 s_off=-1, d_off=-1, s_left, d_left, copy;
+	size_t done = 0;
+
+	for(i=0; i < req->nvecs; ++i) {
+		if(s_skip >= req->vec[i].iov_len) {
+			s_skip -= req->vec[i].iov_len;
+			continue;
+		}
+		else {
+			s_i = i;
+			s_off = s_skip;
+			break;
+		}
+	}
+
+	for(i=0; i < 1; ++i) {
+		if(d_skip >= dst->iov_len) {
+			d_skip -= dst->iov_len;
+			continue;
+		}
+		else {
+			d_i = i;
+			d_off = d_skip;
+			break;
+		}
+	}
+
+	while(done != size) {
+		s_left = req->vec[s_i].iov_len - s_off;
+		d_left = dst->iov_len - d_off;
+		copy = s_left;
+		if(copy > d_left)
+			copy = d_left;
+		if(copy > size - done)
+			copy = size - done;
+		memcpy(dst->iov_base + d_off, req->vec[s_i].iov_base + s_off, copy);
+		done += copy;
+		if(copy == s_left) {
+			s_i++;
+			s_off = 0;
+		}
+		else
+			s_off += copy;
+		if(copy == d_left) {
+			d_i++;
+			d_off = 0;
+		}
+		else
+			d_off += copy;
+	}
+}
+
+__be32
+nfsd4_cuju_do_fast_read(struct file *file, loff_t offset, struct kvec *vec, unsigned long count)
+{
+	struct nfsd4_cuju_write_request *req;
+	long long total_len;
+	u64 src_skip, dst_skip;
+	u64 roffset = (u64)offset;
 
 	mutex_lock(&cuju_lock);
 	//if list is empty
@@ -1174,112 +1271,27 @@ nfsd4_cuju_check_fast_read(struct file *file, loff_t offset, struct kvec *vec, i
 	list_for_each_entry(req, &cuju_write_head, list) {
 		if(req->cmd == NFS_CUJU_CMD_EPOCH)
 			continue;
-
-		if(roffset < req->wr_offset) {
-			if(roffset + count > req->wr_offset)
-				return 1;
+		
+		if(roffset >= req->wr_offset && roffset+count <= req->wr_offset+req->wr_buflen) {
+			dst_skip = 0;
+			src_skip = roffset - req->wr_offset;
+			total_len = count;
 		}
-		else if(roffset > req->wr_offset) {
-			if(roffset < req->wr_offset + req->wr_buflen)
-				return 1;
+		else if(roffset < req->wr_offset && roffset+count > req->wr_offset) {
+			dst_skip = req->wr_offset - roffset;
+			src_skip = 0;
+			total_len = min_t(u64, roffset+count, req->wr_offset+req->wr_buflen) - req->wr_offset;
 		}
-		else if(roffset == req->wr_offset) {
-				return 1;
-		}
-		else
-			continue;
-	}
-
-out:
-	mutex_unlock(&cuju_lock);
-	return 0;
-}
-
-__be32
-nfsd4_cuju_do_fast_read(struct file *file, loff_t offset, struct kvec *vec, unsigned long count)
-{
-	struct nfsd4_cuju_write_request *req;
-	long long total_len,tmp_len;
-	int i;
-	u64 roffset = (u64)offset;
-	u64 start_offset;
-	void *p;
-
-	//if list is empty
-	if(list_empty(&cuju_write_head))
-		goto out;
-
-	list_for_each_entry(req, &cuju_write_head, list) {
-		if(req->cmd == NFS_CUJU_CMD_EPOCH)
-			continue;
-		i = 0;
-		p = vec->iov_base;
-
-		if(roffset < req->wr_offset) {
-			if(roffset + count > req->wr_offset) {
-				start_offset = req->wr_offset - roffset;
-				if(roffset + count < req->wr_offset + req->wr_buflen)
-					total_len = roffset + count - req->wr_offset;
-				else
-					total_len = req->wr_buflen;
-
-				p += start_offset;
-				while(total_len > 0) {
-					tmp_len = min_t(long, total_len, req->vec[i].iov_len);
-					memcpy(p, req->vec[i].iov_base, tmp_len);
-					p += tmp_len;
-					i++;
-					total_len -= tmp_len;
-				}
-			}
-		}
-		else if(roffset > req->wr_offset) {
-			if(roffset < req->wr_offset + req->wr_buflen) {
-				//count start vec
-				total_len = roffset - req->wr_offset;
-				while(total_len > 0) {
-					if(total_len - req->vec[i].iov_len < 0)
-						break;
-					tmp_len = min_t(long, total_len, req->vec[i].iov_len);
-					i++;
-					total_len -= tmp_len;
-				}
-				tmp_len = total_len;
-				if(roffset + count > req->wr_offset + req->wr_buflen)
-					total_len = req->wr_offset + req->wr_buflen - roffset;
-				else
-					total_len = count;
-				if(tmp_len > 0) {
-					memcpy(p, req->vec[i].iov_base+tmp_len, req->vec[i].iov_len-tmp_len);
-					p += req->vec[i].iov_len-tmp_len;
-					i++;
-					total_len -= req->vec[i].iov_len-tmp_len;
-				}
-				while(total_len > 0) {
-					tmp_len = min_t(long, total_len, req->vec[i].iov_len);
-					memcpy(p, req->vec[i].iov_base, tmp_len);
-					p += tmp_len;
-					i++;
-					total_len -= tmp_len;
-				}
-			}
-		}
-		else if(roffset == req->wr_offset) {
-			p =  vec->iov_base;
-			if(count < req->wr_buflen)
-				total_len = count;
-			else
-				total_len = req->wr_buflen;
-			while(total_len > 0) {
-				tmp_len = min_t(long, total_len, req->vec[i].iov_len);
-				memcpy(p, req->vec[i].iov_base, tmp_len);
-				p += tmp_len;
-				i++;
-				total_len -= tmp_len;
-			}
+		else if(roffset >= req->wr_offset && roffset < req->wr_offset+req->wr_buflen &&
+				roffset+count > req->wr_offset+req->wr_buflen) {
+			dst_skip = 0;
+			src_skip = roffset - req->wr_offset;
+			total_len = req->wr_offset+req->wr_buflen - roffset;
 		}
 		else
 			continue;
+
+		nfsd4_cuju_fast_read_vec_copy(vec, dst_skip, count, req, src_skip, total_len);
 	}
 
 out:
