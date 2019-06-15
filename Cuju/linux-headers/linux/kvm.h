@@ -1354,7 +1354,7 @@ struct kvm_shmem_init {
   unsigned long pages_per_ms;
 };
 #define KVM_SHM_INIT              _IOW(KVMIO, 0xbc, struct kvm_shmem_init)
-#define KVM_SHM_ENABLE            _IO(KVMIO, 0xbd)
+#define KVM_SHM_ENABLE            _IOW(KVMIO, 0xbd, int)
 #define KVM_SHM_START_TIMER       _IO(KVMIO, 0xbe)
 
 struct kvm_shmem_child {

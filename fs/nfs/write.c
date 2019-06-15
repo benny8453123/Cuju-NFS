@@ -1953,6 +1953,7 @@ out_error:
 /*
  *For Cuju command
  */
+//for testing
 void *global_filp = NULL;
 EXPORT_SYMBOL_GPL(global_filp);
 
@@ -2030,59 +2031,6 @@ static int nfs_cuju_cmd_initiate(struct rpc_clnt *clnt, struct nfs_cuju_cmd_data
 	return 0;
 }
 
-static int __nfs_cuju_cmd_send(unsigned long fd) {
-	struct fd f =  __to_fd(fd);
-	struct file *file = f.file;
-	struct inode *inode = file_inode(file);
-	struct nfs_open_context *ctx = nfs_file_open_context(file);
-	//allocate and init ftcmd data
-	struct nfs_cuju_cmd_data *data;
-
-	//allocate
-	data = mempool_alloc(nfs_cuju_cmd_mempool, GFP_NOIO);
-	if(data)
-		memset(data,0,sizeof(*data));
-	else
-		printk(KERN_ERR "Cuju allocate cmd data fail\n");
-
-	//init data
-	data->inode	= inode;
-	data->cred = ctx->cred;
-	data->args.fh = NFS_FH(inode);
-	data->args.cmd = 1;
-
-	data->context = ctx;
-	data->mds_ops = &nfs_cuju_cmd_ops;
-	data->res.fattr = &data->fattr;
-	data->res.verf = &data->verf;
-	nfs_fattr_init(&data->fattr);
-	
-	//initiate
-	nfs_cuju_cmd_initiate(NFS_CLIENT(inode),data,NFS_PROTO(inode),&nfs_cuju_cmd_ops);
-
-	//complete and clean
-	//not do yet
-	return 0;
-}
-
-
-int nfs_cuju_cmd_send(unsigned int fd,int cmd) {
-	unsigned long v = __fdget(fd);
-	struct file *file = (struct file *)(v & ~3);
-
-	if (file && (file->f_mode & FMODE_ATOMIC_POS)) {
-		if (file_count(file) > 1) {
-			v |= FDPUT_POS_UNLOCK;
-			mutex_lock(&file->f_pos_lock);
-		}
-	}
-	return __nfs_cuju_cmd_send(v);
-}
-EXPORT_SYMBOL_GPL(nfs_cuju_cmd_send);
-//Cuju end
-
-
-//for test
 int nfs_cuju_cmd_send2(void *f,int cmd) {
 	struct file *file = (struct file *)f;
 	struct inode *inode = file_inode(file);
@@ -2137,6 +2085,21 @@ int nfs_cuju_cmd_send2(void *f,int cmd) {
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nfs_cuju_cmd_send2);
+
+
+int nfs_cuju_cmd_send(unsigned int fd,int cmd) {
+	struct fd f;
+
+	f = fdget(fd);
+	if (f.file) {
+		nfs_cuju_cmd_send2(f.file, cmd);
+		return 0;
+	}
+	return -1;
+}
+EXPORT_SYMBOL_GPL(nfs_cuju_cmd_send);
+//Cuju end
+
 
 #ifdef CONFIG_MIGRATION
 int nfs_migrate_page(struct address_space *mapping, struct page *newpage,

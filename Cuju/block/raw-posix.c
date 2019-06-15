@@ -99,6 +99,9 @@
 #endif
 
 //#define DEBUG_BLOCK
+/* For Cuju NFS module */
+int global_block_fd = 0;
+//cuju end
 
 #ifdef DEBUG_BLOCK
 # define DEBUG_BLOCK_PRINT 1
@@ -450,6 +453,10 @@ static int raw_open_common(BlockDriverState *bs, QDict *options,
         goto fail;
     }
     s->fd = fd;
+
+		/* For Cuju NFS module */
+		global_block_fd = fd;
+		//cuju end
 
 #ifdef CONFIG_LINUX_AIO
      /* Currently Linux does AIO only for files opened with O_DIRECT */

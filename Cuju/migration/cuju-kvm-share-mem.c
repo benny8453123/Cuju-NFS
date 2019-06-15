@@ -39,6 +39,10 @@ static unsigned int dirty_pages_userspace[1024];
 static unsigned int dirty_pages_userspace_committed[1024];
 static uint8_t dirty_pages_userspace_copy[1024][4096];
 
+/* For Cuju NFS module */
+extern int global_block_fd;
+//cuju end
+
 static void dirty_pages_userspace_add(unsigned long gfn)
 {
     int i, cnt;
@@ -275,7 +279,7 @@ void kvm_shmem_start_ft(void)
 
     //kvm_start_log_share_dirty_pages();
 
-    ret = kvm_vm_ioctl(kvm_state, KVM_SHM_ENABLE);
+    ret = kvm_vm_ioctl(kvm_state, KVM_SHM_ENABLE, &global_block_fd);
     if (ret) {
         fprintf(stderr, "%s failed: %d\n", __func__, ret);
         exit(ret);
@@ -1474,7 +1478,7 @@ void kvmft_update_epoch_flush_time_linear(double time_s)
     }
 }
 
-void kvmft_send_commit() {
+void kvmft_send_commit(void) {
 	/* NFS blk server*/
 	kvm_vm_ioctl(kvm_state, KVM_CUJU_COMMIT);
 	//

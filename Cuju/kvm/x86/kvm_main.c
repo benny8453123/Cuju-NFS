@@ -106,7 +106,7 @@ MODULE_LICENSE("GPL");
 /* For Cuju nfs module */
 #include <linux/nfs4cuju.h>
 #include <linux/nfs4cujuinternal.h>
-extern void *global_filp;
+int cuju_nfs_fd;
 //end
 
 /* Architectures should define their poll value according to the halt latency */
@@ -3198,7 +3198,7 @@ static long kvm_vm_ioctl(struct file *filp,
         if (copy_from_user(&__cur_index, argp, sizeof(__cur_index)))
             goto out;
         r = kvm_get_put_off(kvm, __cur_index);
-		nfs_cuju_cmd_send2(global_filp,NFS_CUJU_CMD_EPOCH);
+		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_EPOCH);
         break;
     case KVM_RESET_PUT_OFF:
         if (copy_from_user(&__cur_index, argp, sizeof(__cur_index)))
@@ -3206,14 +3206,16 @@ static long kvm_vm_ioctl(struct file *filp,
         r = kvm_reset_put_off(kvm, __cur_index);
         break;
     case KVM_SHM_ENABLE: {
+        if (copy_from_user(&cuju_nfs_fd, argp, sizeof(cuju_nfs_fd)))
+            goto out;
         r = kvm_shm_enable(kvm);
-		nfs_cuju_cmd_send2(global_filp,NFS_CUJU_CMD_FT);
+		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_FT);
         if (r)
             goto out;
         break;
     }
 	case KVM_CUJU_COMMIT: {
-		nfs_cuju_cmd_send2(global_filp,NFS_CUJU_CMD_COMMIT);
+		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_COMMIT);
 		r = 0;
 		break;
 	}
