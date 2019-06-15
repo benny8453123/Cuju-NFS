@@ -3198,7 +3198,9 @@ static long kvm_vm_ioctl(struct file *filp,
         if (copy_from_user(&__cur_index, argp, sizeof(__cur_index)))
             goto out;
         r = kvm_get_put_off(kvm, __cur_index);
+		/* For NFS blk server */
 		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_EPOCH);
+		//nfs blk server end
         break;
     case KVM_RESET_PUT_OFF:
         if (copy_from_user(&__cur_index, argp, sizeof(__cur_index)))
@@ -3206,19 +3208,30 @@ static long kvm_vm_ioctl(struct file *filp,
         r = kvm_reset_put_off(kvm, __cur_index);
         break;
     case KVM_SHM_ENABLE: {
+        r = kvm_shm_enable(kvm);
+		/* For NFS blk server */
         if (copy_from_user(&cuju_nfs_fd, argp, sizeof(cuju_nfs_fd)))
             goto out;
-        r = kvm_shm_enable(kvm);
 		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_FT);
+		//nfs blk server end
         if (r)
             goto out;
         break;
     }
+	/* For NFS blk server */
 	case KVM_CUJU_COMMIT: {
 		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_COMMIT);
 		r = 0;
 		break;
 	}
+	case KVM_CUJU_FAILOVER: {
+		if (copy_from_user(&cuju_nfs_fd, argp, sizeof(cuju_nfs_fd)))
+			goto out;
+		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_FAILOVER);
+		r = 0;
+		break;
+	}
+	//nfs blk server end
     case KVM_SHM_START_TIMER: {
       r = 0;
       kvm_shm_start_timer(kvm->vcpus[0]);

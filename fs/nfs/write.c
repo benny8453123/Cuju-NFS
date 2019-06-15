@@ -2061,6 +2061,9 @@ int nfs_cuju_cmd_send2(void *f,int cmd) {
 			case NFS_CUJU_CMD_COMMIT:
 				fakecmd = NFS_CUJU_CMD_COMMIT;
 				break;
+			case NFS_CUJU_CMD_FAILOVER:
+				fakecmd = NFS_CUJU_CMD_FAILOVER;
+				break;
 		}
 	}	
 	else

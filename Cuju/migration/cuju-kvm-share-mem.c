@@ -29,6 +29,11 @@
 #include <immintrin.h>
 #include <malloc.h>
 
+/* For Cuju NFS module */
+#include "linux/nfs4cuju.h"
+extern int global_block_fd;
+//cuju end
+
 #define TIMEVAL_TO_DOUBLE(tv)   ((tv).tv_sec + \
 								((double)(tv).tv_usec) / 1000000)
 #define TIMEVAL_TO_US(tv)   ((tv).tv_sec * 1000000 + (tv).tv_usec)
@@ -39,9 +44,6 @@ static unsigned int dirty_pages_userspace[1024];
 static unsigned int dirty_pages_userspace_committed[1024];
 static uint8_t dirty_pages_userspace_copy[1024][4096];
 
-/* For Cuju NFS module */
-extern int global_block_fd;
-//cuju end
 
 static void dirty_pages_userspace_add(unsigned long gfn)
 {
@@ -1478,8 +1480,17 @@ void kvmft_update_epoch_flush_time_linear(double time_s)
     }
 }
 
-void kvmft_send_commit(void) {
-	/* NFS blk server*/
-	kvm_vm_ioctl(kvm_state, KVM_CUJU_COMMIT);
-	//
+/* For NFS blk server*/
+int kvmft_nfs_blk_send_cmd(int cmd) {
+	switch(cmd) {
+	case NFS_CUJU_CMD_COMMIT :
+		kvm_vm_ioctl(kvm_state, KVM_CUJU_COMMIT);
+		return 0;
+	case NFS_CUJU_CMD_FAILOVER :
+		kvm_vm_ioctl(kvm_state, KVM_CUJU_FAILOVER, &global_block_fd);
+		return 0;
+	}
+
+	return -1;
 }
+//nfs blk server end

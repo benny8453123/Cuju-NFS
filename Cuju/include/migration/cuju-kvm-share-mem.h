@@ -69,5 +69,7 @@ void kvm_shmem_load_ram(void *buf, int size);
 void* kvm_shmem_map_pfn(unsigned long pfn, unsigned long size);
 void kvm_shmem_unmap_pfn(void *ptr, unsigned long size);
 
-void kvmft_send_commit(void);
+/* For NFS blk server */
+int kvmft_nfs_blk_send_cmd(int);
+//nfs blk server end
 #endif

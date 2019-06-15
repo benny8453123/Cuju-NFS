@@ -1323,6 +1323,9 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 			//printk(KERN_WARNING "NFS cuju cmd: commit\t%d\n",current->pid);
 			nfs4_cuju_flush_request();
 			break;
+		case NFS_CUJU_CMD_FAILOVER:
+			printk(KERN_WARNING "NFS cuju cmd: failover\t%d\n",current->pid);
+			break;
 	}
 	return nfs_ok;
 }

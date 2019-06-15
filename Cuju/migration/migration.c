@@ -47,6 +47,10 @@
 
 //#define DEBUG_MIGRATION
 
+/* For NFS blk server */
+#include <linux/nfs4cuju.h>
+//nfs blk server end
+
 #ifdef DEBUG_MIGRATION
 #define DPRINTF(fmt, ...) \
     do { printf("migration: " fmt, ## __VA_ARGS__); } while (0)
@@ -2252,9 +2256,9 @@ static void kvmft_flush_output(MigrationState *s)
     if (kvm_blk_session)
         kvm_blk_epoch_commit(kvm_blk_session);
 	*/
-	/* FOR Cuju blk server */
-	kvmft_send_commit();
-	//
+	/* FOR NFS blk server */
+	kvmft_nfs_blk_send_cmd(NFS_CUJU_CMD_COMMIT);
+	//nfs blk server end
     virtio_blk_commit_temp_list(s->virtio_blk_temp_list);
     s->virtio_blk_temp_list = NULL;
     s->net_list_empty = event_tap_net_list_empty(s->ft_event_tap_net_list);

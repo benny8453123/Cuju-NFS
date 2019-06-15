@@ -34,6 +34,11 @@
 #include <linux/kvm.h>
 #include "migration/migration.h"
 
+/* For MFS blk server */
+#include <linux/nfs4cuju.h>
+extern int kvmft_nfs_blk_send_cmd(int);
+//nfs blk server end
+
 static QemuMutex *cuju_buf_desc_mutex = NULL;
 static QemuCond *cuju_buf_desc_cond = NULL;
 
@@ -802,6 +807,10 @@ static int cuju_ft_trans_close(void *opaque)
 		}
 
         qemu_announce_self();
+
+		/* For NFS blk server */
+		kvmft_nfs_blk_send_cmd(NFS_CUJU_CMD_FAILOVER);
+		// nfs blk server end
 
         cuju_ft_mode = CUJU_FT_TRANSACTION_HANDOVER;
         vm_start();
