@@ -789,14 +789,14 @@ static int virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb, u
             qemu_iovec_init_external(&req->qiov, iov, out_num);
             trace_virtio_blk_handle_write(req, req->sector_num,
                                           req->qiov.size / BDRV_SECTOR_SIZE);
-			if (kvmft_started()) {
+			/*if (kvmft_started()) {
 				virtio_blk_save_write_head(s, req, head);
 #ifdef CONFIG_EPOCH_OUTPUT_TRIGGER
 				extern kvmft_notify_new_output();
 				kvmft_notify_new_output();
 #endif
                 break;
-			}
+			}*/
         } else {
             if (kvmft_started()) {
                 qemu_iovec_alloc_by_external(&req->qiov, in_iov,
