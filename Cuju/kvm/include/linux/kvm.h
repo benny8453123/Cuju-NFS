@@ -1357,8 +1357,9 @@ struct kvm_shmem_mark_page_dirty {
 #define KVM_RESET_PUT_OFF                 _IOW(KVMIO,  0xd2, int)
 
 /* For NFS blk server */
-#define KVM_CUJU_COMMIT                   _IO(KVMIO,  0xd3)
-#define KVM_CUJU_FAILOVER                 _IOW(KVMIO,  0xd4, int)
+#define KVM_CUJU_EPOCH                    _IO(KVMIO,  0xd3)
+#define KVM_CUJU_COMMIT                   _IO(KVMIO,  0xd4)
+#define KVM_CUJU_FAILOVER                 _IOW(KVMIO,  0xd5, int)
 //nfs blk server end
 
 struct kvm_shmem_extend {

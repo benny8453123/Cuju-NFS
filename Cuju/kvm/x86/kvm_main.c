@@ -3198,9 +3198,6 @@ static long kvm_vm_ioctl(struct file *filp,
         if (copy_from_user(&__cur_index, argp, sizeof(__cur_index)))
             goto out;
         r = kvm_get_put_off(kvm, __cur_index);
-		/* For NFS blk server */
-		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_EPOCH);
-		//nfs blk server end
         break;
     case KVM_RESET_PUT_OFF:
         if (copy_from_user(&__cur_index, argp, sizeof(__cur_index)))
@@ -3219,6 +3216,11 @@ static long kvm_vm_ioctl(struct file *filp,
         break;
     }
 	/* For NFS blk server */
+	case KVM_CUJU_EPOCH: {
+		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_EPOCH);
+		r = 0;
+		break;
+	}
 	case KVM_CUJU_COMMIT: {
 		nfs_cuju_cmd_send(cuju_nfs_fd, NFS_CUJU_CMD_COMMIT);
 		r = 0;

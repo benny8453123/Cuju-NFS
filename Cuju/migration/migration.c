@@ -2899,6 +2899,10 @@ static void migrate_timer(void *opaque)
     vm_stop_mig();
     qemu_iohandler_ft_pause(true);
 
+	/* FOR NFS blk server */
+	kvmft_nfs_blk_send_cmd(NFS_CUJU_CMD_EPOCH);
+	//nfs blk server end
+
     s->flush_vs_commit1 = false;
     s->transfer_start_time = time_in_double();
     s->ram_len = 0;

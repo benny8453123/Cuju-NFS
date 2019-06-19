@@ -1483,6 +1483,9 @@ void kvmft_update_epoch_flush_time_linear(double time_s)
 /* For NFS blk server*/
 int kvmft_nfs_blk_send_cmd(int cmd) {
 	switch(cmd) {
+	case NFS_CUJU_CMD_EPOCH :
+		kvm_vm_ioctl(kvm_state, KVM_CUJU_EPOCH);
+		return 0;
 	case NFS_CUJU_CMD_COMMIT :
 		kvm_vm_ioctl(kvm_state, KVM_CUJU_COMMIT);
 		return 0;
