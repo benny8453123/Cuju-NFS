@@ -55,6 +55,8 @@
 struct mutex *cuju_lock = NULL;
 u32 ft_mode = 0;
 LIST_HEAD(cuju_write_head);
+loff_t fast_read_start = LLONG_MAX;
+loff_t fast_read_end = 0;
 //cmd
 
 #ifdef CONFIG_NFSD_V4_SECURITY_LABEL
@@ -1049,6 +1051,11 @@ nfsd4_cuju_fake_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct fil
 	/* insert in cuju write list */
 	nfsd4_cuju_list_add_tail(req, NFS_CUJU_CMD_WRITE);
 
+	if(req->wr_offset < fast_read_start)
+		fast_read_start = req->wr_offset;
+	if(req->wr_offset+req->wr_buflen - 1 > fast_read_end)
+		fast_read_end = req->wr_offset + req->wr_buflen -1;
+
 	/* handle callback */
 	*cnt = write->wr_buflen;
 	return 0;
@@ -1129,6 +1136,9 @@ static void nfsd4_cuju_flush_request(void)
 	struct nfsd4_cuju_write_request *req;
 	unsigned long cnt;
 	__be32 status;
+	loff_t start = LLONG_MAX;
+	loff_t end = 0;
+	struct file *f;
 
 	/* move to flush list until epoch tag */
 	mutex_lock(cuju_lock);
@@ -1152,6 +1162,11 @@ static void nfsd4_cuju_flush_request(void)
 
 		//flush write request
 		if(req->cmd == NFS_CUJU_CMD_WRITE) {
+			f = req->file;
+			if(req->wr_offset < start)
+				start = req->wr_offset;
+			if(req->wr_offset+req->wr_buflen - 1 > end)
+				end = req->wr_offset + req->wr_buflen -1;
 			status = nfsd4_cuju_vfs_write(req, &cnt);
 			if(status != 0 || cnt != req->wr_buflen)
 				printk(KERN_WARNING "NFS cuju write error: write req flush error!\n");
@@ -1161,6 +1176,21 @@ static void nfsd4_cuju_flush_request(void)
 
 		//Free this nfsd4_cuju_write_request struct
 		kfree(req);
+	}
+	if(end != 0 && start != LLONG_MAX)
+		 vfs_fsync_range(f, start, end, 1);
+
+
+	fast_read_start = LLONG_MAX;
+	fast_read_end = 0;
+	list_for_each_safe(pos, n, &cuju_write_head)
+	{
+		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
+
+		if(req->wr_offset < fast_read_start)
+			fast_read_start = req->wr_offset;
+		if(req->wr_offset+req->wr_buflen - 1 > fast_read_end)
+			fast_read_end = req->wr_offset + req->wr_buflen -1;
 	}
 	mutex_unlock(cuju_lock);
 }

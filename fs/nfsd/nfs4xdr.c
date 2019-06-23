@@ -64,6 +64,8 @@
 extern u32 ft_mode;
 struct kvec *read_kvec,*global_read_kvec = NULL;
 struct mutex cuju_read_lock;
+extern loff_t fast_read_start;
+extern loff_t fast_read_end;
 //cuju end
 
 /*
@@ -3531,6 +3533,26 @@ static __be32 nfsd4_encode_readv(struct nfsd4_compoundres *resp,
 
 }
 
+static int nfsd4_cuju_check_fast_read_fastpath(struct file *file, loff_t offset, struct kvec *vec, int vlen, unsigned long count) {
+	if(fast_read_start == LLONG_MAX && fast_read_end == 0)
+		return 0;
+
+	if(offset < fast_read_start) {
+		if(offset + count > fast_read_start)
+			return 1;
+	}
+	if(offset > fast_read_start) {
+		if(offset < fast_read_end)
+			return 1;
+	}
+	if(offset == fast_read_start) {
+		return 1;
+	}
+
+	return 0;
+
+}
+
 static __be32
 nfsd4_encode_read(struct nfsd4_compoundres *resp, __be32 nfserr,
 		  struct nfsd4_read *read)
@@ -3570,7 +3592,9 @@ nfsd4_encode_read(struct nfsd4_compoundres *resp, __be32 nfserr,
 	if (file->f_op->splice_read &&
 	    test_bit(RQ_SPLICE_OK, &resp->rqstp->rq_flags)) {
 		if(ft_mode) {
-			if(nfsd4_cuju_check_fast_read(file, read->rd_offset, resp->rqstp->rq_vec,
+			//if(nfsd4_cuju_check_fast_read(file, read->rd_offset, resp->rqstp->rq_vec,
+						//read->rd_vlen, maxcount))
+			if(nfsd4_cuju_check_fast_read_fastpath(file, read->rd_offset, resp->rqstp->rq_vec,
 						read->rd_vlen, maxcount))
 				nfserr = nfsd4_encode_readv(resp, read, file, maxcount);
 			else
