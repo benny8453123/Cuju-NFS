@@ -23,6 +23,7 @@ struct nfsd4_cuju_write_request {
 	//kvec
 	struct kvec 		*vec;			/* The real write data vec */
 	int 				nvecs;			/* How many vec in vec */
+	int					epoch;
 	//linked-list
 	struct list_head 	list;			/* Link ft/write request/epoch in list */
 };

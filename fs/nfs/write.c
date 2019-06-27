@@ -36,6 +36,7 @@
 /* Cuju cmd */
 #include <linux/nfs4cuju.h>
 #include <linux/nfs4cujuinternal.h>
+u32 cuju_client_epoch = 0;
 //cmd
 
 #define NFSDBG_FACILITY		NFSDBG_PAGECACHE
@@ -2054,10 +2055,12 @@ int nfs_cuju_cmd_send2(void *f,int cmd) {
 				break;
 			case NFS_CUJU_CMD_FT:
 				fakecmd = NFS_CUJU_CMD_FT;
+				cuju_client_epoch++;
 				break;
 			case NFS_CUJU_CMD_EPOCH:
 				fakecmd = NFS_CUJU_CMD_EPOCH;
-				break;
+				cuju_client_epoch++;
+				return 0;
 			case NFS_CUJU_CMD_COMMIT:
 				fakecmd = NFS_CUJU_CMD_COMMIT;
 				break;

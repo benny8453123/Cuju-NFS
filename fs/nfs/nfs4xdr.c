@@ -210,7 +210,7 @@ static int nfs4_stat_to_errno(int);
 #define encode_readlink_maxsz	(op_encode_hdr_maxsz)
 #define decode_readlink_maxsz	(op_decode_hdr_maxsz + 1)
 #define encode_write_maxsz	(op_encode_hdr_maxsz + \
-				 encode_stateid_maxsz + 4)
+				 encode_stateid_maxsz + 4 + 1)
 #define decode_write_maxsz	(op_decode_hdr_maxsz + \
 				 2 + decode_verifier_maxsz)
 #define encode_commit_maxsz	(op_encode_hdr_maxsz + 3)
@@ -1722,10 +1722,12 @@ static void encode_write(struct xdr_stream *xdr, const struct nfs_pgio_args *arg
 	encode_op_hdr(xdr, OP_WRITE, decode_write_maxsz, hdr);
 	encode_nfs4_stateid(xdr, &args->stateid);
 
-	p = reserve_space(xdr, 16);
+	//p = reserve_space(xdr, 16);
+	p = reserve_space(xdr, 20);
 	p = xdr_encode_hyper(p, args->offset);
 	*p++ = cpu_to_be32(args->stable);
-	*p = cpu_to_be32(args->count);
+	*p++ = cpu_to_be32(args->count);
+	*p = cpu_to_be32(args->epoch);
 
 	xdr_write_pages(xdr, args->pages, args->pgbase, args->count);
 }

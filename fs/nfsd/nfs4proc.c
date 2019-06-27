@@ -55,6 +55,7 @@
 struct mutex *cuju_lock = NULL;
 u32 ft_mode = 0;
 LIST_HEAD(cuju_write_head);
+atomic_t cuju_epoch = ATOMIC_INIT(0);
 loff_t fast_read_start = LLONG_MAX;
 loff_t fast_read_end = 0;
 //cmd
@@ -1047,7 +1048,8 @@ nfsd4_cuju_fake_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct fil
 	req->wr_how_written = write->wr_how_written;
 	req->vec = nfsd4_cuju_copy_kvec(vec,vlen);
 	req->nvecs = vlen;
-
+	req->epoch = write->wr_epoch;
+	
 	/* insert in cuju write list */
 	nfsd4_cuju_list_add_tail(req, NFS_CUJU_CMD_WRITE);
 
@@ -1112,12 +1114,17 @@ static void nfsd4_cuju_failover_clear_list(void)
 {
 	//Initial
 	struct nfsd4_cuju_write_request *pos, *n;
+	int clear_epoch;
+
 
 	mutex_lock(cuju_lock);
+	pos = list_last_entry(&cuju_write_head, struct nfsd4_cuju_write_request, list);
+	clear_epoch = atomic_read(&cuju_epoch);
+
 	/* remove & free last write req until encounter epoch tag */
 	list_for_each_entry_safe_reverse(pos, n, &cuju_write_head, list) {
 		// encounter epoch
-		if(pos->cmd == NFS_CUJU_CMD_EPOCH)
+		if(pos->epoch == clear_epoch)
 			break;
 
 		/* write case */
@@ -1139,17 +1146,24 @@ static void nfsd4_cuju_flush_request(void)
 	loff_t start = LLONG_MAX;
 	loff_t end = 0;
 	struct file *f;
+	int flush_epoch;
 
 	/* move to flush list until epoch tag */
 	mutex_lock(cuju_lock);
+
+	req =  list_first_entry(&cuju_write_head, struct nfsd4_cuju_write_request, list);
+	flush_epoch = req->epoch;
+	
 	list_for_each_safe(pos, n, &cuju_write_head)
 	{
 		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
+
+		/* epoch case */
+		if(req->epoch != flush_epoch)
+			break;
+
 		//Delete this entry from list & move to flush list
 		list_move_tail(pos, &flush_list);
-		/* epoch case */
-		if(req->cmd == NFS_CUJU_CMD_EPOCH)
-			break;
 	}
 	//mutex_unlock(&cuju_lock);
 
@@ -1399,11 +1413,12 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 
 		case NFS_CUJU_CMD_EPOCH:
 			//printk(KERN_WARNING "NFS cuju cmd: epoch\t%d\n",current->pid);
-			nfsd4_cuju_list_add_tail(NULL, NFS_CUJU_CMD_EPOCH);
+			//nfsd4_cuju_list_add_tail(NULL, NFS_CUJU_CMD_EPOCH);
 			break;
 
 		case NFS_CUJU_CMD_COMMIT:
 			//printk(KERN_WARNING "NFS cuju cmd: commit\t%d\n",current->pid);
+			atomic_inc(&cuju_epoch);
 			nfsd4_cuju_flush_request();
 			break;
 		case NFS_CUJU_CMD_FAILOVER:

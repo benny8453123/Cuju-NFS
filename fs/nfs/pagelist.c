@@ -26,6 +26,10 @@
 
 #define NFSDBG_FACILITY		NFSDBG_PAGECACHE
 
+/* For Cuju */
+extern u32 cuju_client_epoch;
+//cuju_end
+
 static struct kmem_cache *nfs_page_cachep;
 static const struct rpc_call_ops nfs_pgio_common_ops;
 
@@ -850,13 +854,15 @@ static int nfs_generic_pg_pgios(struct nfs_pageio_descriptor *desc)
 	}
 	nfs_pgheader_init(desc, hdr, nfs_pgio_header_free);
 	ret = nfs_generic_pgio(desc, hdr);
-	if (ret == 0)
+	if (ret == 0) {
+		hdr->args.epoch = cuju_client_epoch;
 		ret = nfs_initiate_pgio(NFS_CLIENT(hdr->inode),
 					hdr,
 					hdr->cred,
 					NFS_PROTO(hdr->inode),
 					desc->pg_rpc_callops,
 					desc->pg_ioflags, 0);
+	}
 	return ret;
 }
 

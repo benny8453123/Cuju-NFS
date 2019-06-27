@@ -1223,12 +1223,14 @@ nfsd4_decode_write(struct nfsd4_compoundargs *argp, struct nfsd4_write *write)
 	status = nfsd4_decode_stateid(argp, &write->wr_stateid);
 	if (status)
 		return status;
-	READ_BUF(16);
+	//READ_BUF(16);
+	READ_BUF(20);
 	p = xdr_decode_hyper(p, &write->wr_offset);
 	write->wr_stable_how = be32_to_cpup(p++);
 	if (write->wr_stable_how > 2)
 		goto xdr_error;
 	write->wr_buflen = be32_to_cpup(p++);
+	write->wr_epoch = be32_to_cpup(p++);
 
 	/* Sorry .. no magic macros for this.. *
 	 * READ_BUF(write->wr_buflen);

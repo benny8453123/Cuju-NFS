@@ -579,6 +579,7 @@ struct nfs_pgio_args {
 	struct page **		pages;
 	const u32 *		bitmask;	/* used by write */
 	enum nfs3_stable_how	stable;		/* used by write */
+	__u32			epoch;
 };
 
 struct nfs_pgio_res {
