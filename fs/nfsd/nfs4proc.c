@@ -1143,7 +1143,6 @@ static void nfsd4_cuju_failover_clear_list(void)
 static int nfsd4_cuju_flush_request(void *data)
 {
 	//Initial
-	LIST_HEAD(flush_list);
 	struct list_head *pos, *n;
 	struct nfsd4_cuju_write_request *req;
 	unsigned long cnt;
@@ -1154,86 +1153,70 @@ static int nfsd4_cuju_flush_request(void *data)
 	int flush_epoch;
 
 	while (!kthread_should_stop() && ft_mode) {
-	mutex_lock(cuju_lock);
+		mutex_lock(cuju_lock);
 
-more:
-	while(!list_empty(&cuju_write_head)) {
+		while(!list_empty(&cuju_write_head)) {
 
-	/* move to flush list until epoch tag */
-	req =  list_first_entry(&cuju_write_head, struct nfsd4_cuju_write_request, list);
-	//flush_epoch = req->epoch;
-	flush_epoch = atomic_read(&cuju_epoch);
+			//check first entry
+			req =  list_first_entry(&cuju_write_head, struct nfsd4_cuju_write_request, list);
+			flush_epoch = atomic_read(&cuju_epoch);
 
-	/* epoch case */
-	if(req->epoch > flush_epoch) {
-		break;
-	}
-	
-	list_for_each_safe(pos, n, &cuju_write_head)
-	{
-		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
+			/* epoch case */
+			if(req->epoch > flush_epoch)
+				break;
 
-		/* epoch case */
-		if(req->epoch > flush_epoch)
-			break;
+			list_for_each_safe(pos, n, &cuju_write_head)
+			{
+				req = list_entry(pos, struct nfsd4_cuju_write_request, list);
 
-		//Delete this entry from list & move to flush list
-		list_move_tail(pos, &flush_list);
-	}
-	//mutex_unlock(&cuju_lock);
+				/* epoch case */
+				if(req->epoch > flush_epoch)
+					break;
 
-	//flush & delete entry from flush list
-	list_for_each_safe(pos, n, &flush_list) {
-		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
+				//Delete this entry from list
+				list_del(pos);
 
-		//del from list
-		list_del(pos);
+				//flush write request
+				f = req->file;
+				if(req->wr_offset < start)
+					start = req->wr_offset;
+				if(req->wr_offset+req->wr_buflen - 1 > end)
+					end = req->wr_offset + req->wr_buflen -1;
+				status = nfsd4_cuju_vfs_write(req, &cnt);
+				if(status != 0 || cnt != req->wr_buflen)
+					printk(KERN_WARNING "NFS cuju write error: write req flush error!\n");
+				//Free kvec & nfsd4_cuju_write_request struct
+				nfsd4_cuju_free_kvec(req->vec, req->nvecs);
 
-		//flush write request
-		if(req->cmd == NFS_CUJU_CMD_WRITE) {
-			f = req->file;
-			if(req->wr_offset < start)
-				start = req->wr_offset;
-			if(req->wr_offset+req->wr_buflen - 1 > end)
-				end = req->wr_offset + req->wr_buflen -1;
-			status = nfsd4_cuju_vfs_write(req, &cnt);
-			if(status != 0 || cnt != req->wr_buflen)
-				printk(KERN_WARNING "NFS cuju write error: write req flush error!\n");
-			//Free kvec & nfsd4_cuju_write_request struct
-			nfsd4_cuju_free_kvec(req->vec, req->nvecs);
+				//Free this nfsd4_cuju_write_request struct
+				kfree(req);
+			}
+
+			//account the rest of write request for fast_read_fastpath
+			fast_read_start = LLONG_MAX;
+			fast_read_end = 0;
+			list_for_each_safe(pos, n, &cuju_write_head)
+			{
+				req = list_entry(pos, struct nfsd4_cuju_write_request, list);
+
+				if(req->wr_offset < fast_read_start)
+					fast_read_start = req->wr_offset;
+				if(req->wr_offset+req->wr_buflen - 1 > fast_read_end)
+					fast_read_end = req->wr_offset + req->wr_buflen -1;
+			}
+
 		}
-
-		//Free this nfsd4_cuju_write_request struct
-		kfree(req);
-	}
-	if(end != 0 && start != LLONG_MAX)
-		 vfs_fsync_range(f, start, end, 1);
-
-
-	fast_read_start = LLONG_MAX;
-	fast_read_end = 0;
-	list_for_each_safe(pos, n, &cuju_write_head)
-	{
-		req = list_entry(pos, struct nfsd4_cuju_write_request, list);
-
-		if(req->wr_offset < fast_read_start)
-			fast_read_start = req->wr_offset;
-		if(req->wr_offset+req->wr_buflen - 1 > fast_read_end)
-			fast_read_end = req->wr_offset + req->wr_buflen -1;
-	}
-
-	}
-
-	mutex_unlock(cuju_lock);
-	/*mutex_lock(cuju_lock);
-	if(!list_empty(&cuju_write_head)) {
-		req =  list_first_entry(&cuju_write_head, struct nfsd4_cuju_write_request, list);
-		if(atomic_read(&cuju_epoch) >= req->epoch)
-			goto more;
-	}
-	mutex_unlock(cuju_lock);*/
-	set_current_state(TASK_INTERRUPTIBLE);
-	schedule();
+		//sync file range
+		if(end != 0 && start != LLONG_MAX) {
+			 vfs_fsync_range(f, start, end, 1);
+			 start = LLONG_MAX;
+			 end = 0;
+		}
+		
+		mutex_unlock(cuju_lock);
+		//no request goto sleep
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule();
 	}
 	return 0;
 }
@@ -1443,14 +1426,12 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 
 		case NFS_CUJU_CMD_EPOCH:
 			//printk(KERN_WARNING "NFS cuju cmd: epoch\t%d\n",current->pid);
-			//nfsd4_cuju_list_add_tail(NULL, NFS_CUJU_CMD_EPOCH);
 			break;
 
 		case NFS_CUJU_CMD_COMMIT:
 			//printk(KERN_WARNING "NFS cuju cmd: commit\t%d\n",current->pid);
 			atomic_inc(&cuju_epoch);
-			//if(!list_empty(&cuju_write_head))
-				wake_up_process(cuju_flush_thread);
+			wake_up_process(cuju_flush_thread);
 			//nfsd4_cuju_flush_request(NULL);
 			break;
 		case NFS_CUJU_CMD_FAILOVER:
