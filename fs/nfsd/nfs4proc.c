@@ -1214,6 +1214,10 @@ static int nfsd4_cuju_flush_request(void *data)
 		}
 		
 		mutex_unlock(cuju_lock);
+		//check next round
+		if(flush_epoch != atomic_read(&cuju_epoch))
+			continue;
+
 		//no request goto sleep
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
@@ -1431,7 +1435,9 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		case NFS_CUJU_CMD_COMMIT:
 			//printk(KERN_WARNING "NFS cuju cmd: commit\t%d\n",current->pid);
 			atomic_inc(&cuju_epoch);
-			wake_up_process(cuju_flush_thread);
+			//if flush is sleeping wake it up
+			if(cuju_flush_thread->state != 0)
+				wake_up_process(cuju_flush_thread);
 			//nfsd4_cuju_flush_request(NULL);
 			break;
 		case NFS_CUJU_CMD_FAILOVER:

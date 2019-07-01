@@ -2010,7 +2010,8 @@ static int nfs_cuju_cmd_initiate(struct rpc_clnt *clnt, struct nfs_cuju_cmd_data
 		.callback_ops = call_ops,
 		.callback_data = data,
 		.workqueue = nfsiod_workqueue,
-		.priority = (signed char)0,
+		//.priority = (signed char)0,
+		.priority = (signed char)1,
 	};
 
 	nfs_ops->cuju_cmd_setup(data, &msg);
