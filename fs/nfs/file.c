@@ -42,8 +42,8 @@
 /* Cuju cmd */
 #include <linux/nfs4cuju.h>
 #include <linux/nfs4cujuinternal.h>
-extern u32 cuju_client_epoch;
-extern u32 cuju_have_write;
+extern atomic_t cuju_client_epoch;
+extern atomic_t cuju_have_write;
 //cmd
 
 #define NFSDBG_FACILITY		NFSDBG_FILE
@@ -668,8 +668,8 @@ ssize_t nfs_file_write(struct kiocb *iocb, struct iov_iter *from)
 		return result;
 
 	/* For Cuju */
-	if(cuju_client_epoch)
-		cuju_have_write = 1;
+	if(atomic_read(&cuju_client_epoch))
+		atomic_set(&cuju_have_write,1);
 	//cuju end
 
 	if (iocb->ki_flags & IOCB_DIRECT) {

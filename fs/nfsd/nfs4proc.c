@@ -1153,9 +1153,11 @@ static int nfsd4_cuju_flush_request(void *data)
 	struct file *f;
 	int flush_epoch;
 
-	while (kthread_should_stop() && ft_mode) {
-	while(!list_empty(&cuju_write_head)) {
+	while (!kthread_should_stop() && ft_mode) {
 	mutex_lock(cuju_lock);
+
+more:
+	while(!list_empty(&cuju_write_head)) {
 
 	/* move to flush list until epoch tag */
 	req =  list_first_entry(&cuju_write_head, struct nfsd4_cuju_write_request, list);
@@ -1164,7 +1166,6 @@ static int nfsd4_cuju_flush_request(void *data)
 
 	/* epoch case */
 	if(req->epoch > flush_epoch) {
-		mutex_unlock(cuju_lock);
 		break;
 	}
 	
@@ -1221,10 +1222,16 @@ static int nfsd4_cuju_flush_request(void *data)
 			fast_read_end = req->wr_offset + req->wr_buflen -1;
 	}
 
-	mutex_unlock(cuju_lock);
 	}
 
-	//mutex_unlock(cuju_lock);
+	mutex_unlock(cuju_lock);
+	/*mutex_lock(cuju_lock);
+	if(!list_empty(&cuju_write_head)) {
+		req =  list_first_entry(&cuju_write_head, struct nfsd4_cuju_write_request, list);
+		if(atomic_read(&cuju_epoch) >= req->epoch)
+			goto more;
+	}
+	mutex_unlock(cuju_lock);*/
 	set_current_state(TASK_INTERRUPTIBLE);
 	schedule();
 	}
@@ -1442,9 +1449,9 @@ nfsd4_cuju_cmd(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		case NFS_CUJU_CMD_COMMIT:
 			//printk(KERN_WARNING "NFS cuju cmd: commit\t%d\n",current->pid);
 			atomic_inc(&cuju_epoch);
-			if(!list_empty(&cuju_write_head))
+			//if(!list_empty(&cuju_write_head))
 				wake_up_process(cuju_flush_thread);
-			//nfsd4_cuju_flush_request();
+			//nfsd4_cuju_flush_request(NULL);
 			break;
 		case NFS_CUJU_CMD_FAILOVER:
 			printk(KERN_WARNING "NFS cuju cmd: failover\t%d\n",current->pid);
